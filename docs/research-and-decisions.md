@@ -71,7 +71,7 @@ No marketing latency, context-reduction, or benchmark number is adopted as an Io
 
 | ID | Decision | Tradeoff / revisit trigger |
 | --- | --- | --- |
-| DEC-01 | Python local-first engine with TUI and headless clients | Faster single-runtime iteration; revisit transport/backend for supported new platforms. |
+| DEC-01 | Python local-first engine with a TUI-only user interface | Faster single-runtime iteration; revisit internal transport/backend for supported platforms without introducing another user-facing interface. |
 | DEC-02 | Own explicit state machine, not LangGraph dependency | More recovery implementation; revisit if orchestration complexity exceeds the tested core. |
 | DEC-03 | Single workspace writer; bounded read-only workers | Less parallel editing; add writers only with isolated branches and proven merge/verification semantics. |
 | DEC-04 | Durable session journal separate from reusable knowledge | Additional schema design; enables different authority and lifecycle rules. |
@@ -81,7 +81,7 @@ No marketing latency, context-reduction, or benchmark number is adopted as an Io
 | DEC-08 | Atomic compaction with pinned requirements and preserved evidence | Compaction has model cost; avoids summary-only recovery. |
 | DEC-09 | Exact edit preconditions and explicit unknown outcomes | More rereads/reconciliation; prevents silent fuzzy writes and unsafe replay. |
 | DEC-10 | Controller-owned verification and independent evaluation | Cannot guarantee untested correctness; improves honesty and measurable reliability. |
-| DEC-11 | Public contracts before extra clients/plugins | Slower feature breadth; protects core invariants as product grows. |
+| DEC-11 | Stable internal contracts; TUI remains the only user-facing client | Slower feature breadth; protects core invariants without growing the interface surface. |
 | DEC-12 | Competition memory starts fresh across cases | Loses warm-start advantage; revisit only with explicit official allowance and separate reporting. |
 
 The independent documentation review on 2026-09-26 refined four implementation contracts: workspace-wide recovery admission blocks new sessions around orphan commands; observed workspace deltas are separate from attributable Ion edits; authoritative TaskAmendment records preserve later constraints across compaction; and tagged VerificationEvidence represents executable, observation, and static checks without fabricated command links. These refinements strengthen DEC-03/08/09/10 and are covered by EVAL-05/07/08/10.

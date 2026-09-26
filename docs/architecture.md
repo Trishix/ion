@@ -4,7 +4,7 @@ Status: proposed v1 architecture. No runtime is implemented in this documentatio
 
 ## Architectural decision
 
-Build a modular Python application with a durable session engine and thin TUI/headless clients. Keep repository execution in supervised subprocesses. The primary agent owns edits; optional workers perform bounded read-only research or review.
+Build a modular Python application with a durable session engine and a TUI as its sole user-facing interface. Keep repository execution in supervised subprocesses. The primary agent owns edits; optional workers perform bounded read-only research or review.
 
 Python 3.12 is the development compatibility target, with the exact patch release and dependencies locked during implementation after OPEN-02 validation. Use asyncio, SQLite/FTS5, filesystem artifacts, Textual, and uv packaging. Do not add a workflow server, hosted memory dependency, or mandatory container daemon to the competition baseline.
 
@@ -14,7 +14,7 @@ The agent loop is an explicit state machine owned by Ion. This gives direct cont
 
 ```mermaid
 flowchart TB
-    Client["TUI or headless client"] --> Service["Session service"]
+    TUI["Textual TUI"] --> Service["Session service"]
     Service --> Engine["Durable execution engine"]
     Engine --> Gateway["Model gateway"]
     Engine --> Context["Context manager"]
@@ -46,7 +46,7 @@ flowchart TB
 
 ## Process and storage topology
 
-One engine process owns a session's event database and serves its restricted local socket. The client can disconnect without killing the engine. A new client finds the session under Ion's private data root and reconnects. Engine exit releases the OS workspace lock but leaves a durable ownership claim. Every new or resumed session must reconcile that claim and its processes/unknown operations before obtaining write authority.
+One engine process owns a session's event database and serves its restricted local socket. The TUI can disconnect without killing the engine. A re-launched TUI finds the session under Ion's private data root and reconnects. Engine exit releases the OS workspace lock but leaves a durable ownership claim. Every new or resumed session must reconcile that claim and its processes/unknown operations before obtaining write authority.
 
 Repository commands run in separate process groups with sanitized environments. Workers have separate logical transcripts and bounded contexts; they do not inherit the parent's entire conversation or capability set. They can execute as engine-managed asynchronous jobs because their exposed tools are read-only and brokered by Ion.
 
@@ -68,7 +68,7 @@ All exact records and defaults are defined in [interfaces-and-data](interfaces-a
 
 ## Durable event rules
 
-Events and their state projections commit together before clients receive durable notifications. Artifact references become visible only after the referenced file is finalized. Live text fragments are expendable; final messages and tool settlements are durable.
+Events and their state projections commit together before the TUI receives durable notifications. Artifact references become visible only after the referenced file is finalized. Live text fragments are expendable; final messages and tool settlements are durable.
 
 Database commits cannot make a filesystem patch or external command transactional. Prepared/running operations found after a crash are reconciled through preconditions, recorded process identity, workspace fingerprints, and output artifacts. Unknown outcomes are first-class states, not an invitation to rerun.
 
@@ -76,7 +76,7 @@ A checkpoint is a reference into the journal plus compacted context, not a repla
 
 ## Extension boundaries
 
-ModelGateway isolates providers. ExecutionBackend exposes file/command operations and may later gain a container implementation. MemoryStore exposes scoped observe/query/forget operations; external services require explicit opt-in and cannot become required for evaluation. Clients consume the same session contract; future HTTP/editor transports must preserve its semantics.
+ModelGateway isolates providers. ExecutionBackend exposes file/command operations and may later gain a container implementation. MemoryStore exposes scoped observe/query/forget operations; external services require explicit opt-in and cannot become required for evaluation. The TUI consumes the internal session contract. That contract is not a promise of a public HTTP, editor, or alternate-client API.
 
 LSP and syntax indexing are optional retrieval adapters. MCP/custom tools, if later added, must register through the same schema, policy, budget, and evidence controls. An extension cannot widen its own permissions or change the locked evaluation model.
 
@@ -86,7 +86,7 @@ Container execution is a future backend, not a claim of present security. Local 
 
 | Failure | Boundary and response |
 | --- | --- |
-| UI disconnect | Engine continues; client reconstructs from snapshot/events. |
+| TUI disconnect | Engine continues; re-launched TUI reconstructs from snapshot/events. |
 | Optional retrieval timeout | Log degraded retrieval and inspect repository directly. |
 | Model transient error | Bounded gateway retry charged to task budget. |
 | Provider context overflow | One safe compaction recovery before side effects; otherwise report failure. |
@@ -97,4 +97,4 @@ Container execution is a future backend, not a claim of present security. Local 
 
 ## Delivery order
 
-Implement the headless end-to-end loop first; then durability/verification, memory/context, TUI, and measured workers. A polished interface does not substitute for externally verified issue resolution. Milestones and acceptance gates are in [implementation-plan](implementation-plan.md).
+Implement the end-to-end coding loop through the TUI from the start; then durability/verification, memory/context, and measured workers. A polished interface does not substitute for externally verified issue resolution. Milestones and acceptance gates are in [implementation-plan](implementation-plan.md).

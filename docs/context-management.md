@@ -14,7 +14,7 @@ Resolve trusted harness policy and the locked evaluation profile first, then exp
 
 At a directory, prefer AGENTS.md; use CLAUDE.md only when AGENTS.md is absent there. Load applicable instructions from repository root through the target file's ancestors. More specific repository instructions refine broader repository conventions; explicit user instructions and harness policy remain higher priority. Record every loaded path/hash. Do not import instructions from unrelated parent directories, dependencies, or arbitrary files discovered in search.
 
-If project instructions conflict materially with the requested task, expose the conflict for resolution; headless mode reports a concrete blocker when it cannot proceed safely. Keep instruction contents separate from generated summaries so the model cannot rewrite policy during compaction.
+If project instructions conflict materially with the requested task, expose the conflict in the TUI for resolution and do not proceed when it cannot do so safely. Keep instruction contents separate from generated summaries so the model cannot rewrite policy during compaction.
 
 Tool output, retrieved documents, and memory are labeled data with provenance. Escape structural delimiters when serializing retrieved text. This reduces accidental instruction confusion but does not guarantee resistance to adversarial prompt injection.
 
