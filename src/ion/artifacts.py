@@ -37,3 +37,6 @@ class ArtifactStore:
         if "/" in artifact_id or ".." in artifact_id:
             raise ValueError("invalid artifact id")
         return (self.root / artifact_id).read_bytes()
+
+    def has_artifacts(self) -> bool:
+        return any(path.is_file() and not path.name.endswith(".tmp") for path in self.root.iterdir())
