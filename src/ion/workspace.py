@@ -39,7 +39,12 @@ class Workspace:
         if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
             raise ValueError("path escapes repository")
         path = self.root.joinpath(candidate)
-        parent = path.parent.resolve(strict=True)
+        cursor = self.root
+        for component in candidate.parts:
+            cursor /= component
+            if cursor.is_symlink():
+                raise ValueError("symlink paths are unsupported")
+        parent = path.parent.resolve(strict=not allow_new)
         if not parent.is_relative_to(self.root):
             raise ValueError("path escapes repository")
         if path.is_symlink():
@@ -52,9 +57,19 @@ class Workspace:
         try:
             result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
             names = [name.decode("utf-8", "surrogateescape") for name in result.stdout.split(b"\0") if name]
-            return [self.root / name for name in names if (self.root / name).is_file() and not (self.root / name).is_symlink()]
+            candidates = [self.root / name for name in names]
         except (OSError, subprocess.CalledProcessError):
-            return [path for path in self.root.rglob("*") if path.is_file() and not path.is_symlink() and not any(part in self.GENERATED_DIRS for part in path.relative_to(self.root).parts)]
+            candidates = list(self.root.rglob("*"))
+        paths = []
+        for path in candidates:
+            relative = path.relative_to(self.root)
+            if any(part in self.GENERATED_DIRS for part in relative.parts):
+                continue
+            try:
+                paths.append(self.resolve(relative.as_posix()))
+            except (ValueError, OSError):
+                continue
+        return paths
 
     def _snapshot(self) -> dict[str, str]:
         snapshot: dict[str, str] = {}

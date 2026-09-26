@@ -21,9 +21,10 @@ async def test_scripted_coding_loop_changes_file_and_verifies_relevant_check(tmp
     (repo / "tests").mkdir()
     (repo / "tests" / "test_bug.py").write_text("from bug import value\n\ndef test_value():\n    assert value() == 2\n")
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": False})})
     workspace = Workspace.capture(repo)
     artifacts = ArtifactStore(tmp_path / ".ion-artifacts")
-    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts), allow_commands=True)
     original = b"def value():\n    return 1\n"
     turns = [
         [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "bug.py"}, call_id="c1"), ModelEvent(kind="completed")],
