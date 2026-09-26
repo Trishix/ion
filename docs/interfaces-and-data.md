@@ -1,6 +1,6 @@
 # Interfaces, data contracts, and defaults
 
-Status: normative v1 design, not an implemented API. This document is the single owner of shared names, states, defaults, and schema rules.
+Status: runtime reference. This document is the single owner of shared names, states, defaults, and schema rules.
 
 ## TUI and launch contract
 
@@ -12,7 +12,7 @@ The TUI provides doctor/configuration checks and a visible, auditable route to l
 
 ## Session service
 
-The TUI calls a Python client over a permission-restricted Unix domain socket owned by the session engine. This socket is private implementation IPC, not a supported public API or alternate interface. One background engine process owns each session; it outlives TUI disconnects. Write admission requires both a per-workspace advisory lock and a durable WorkspaceOwnership check. A released OS lock alone does not prove that an old command stopped. Separate Git worktrees are distinct workspaces; shared repository knowledge uses short database transactions.
+The TUI starts a permission-restricted Unix domain socket for the foreground session service. This socket is private implementation IPC, not a supported public API or alternate interface. The current engine runs in the foreground TUI; the journal survives process exit for inspection and recovery checks. Write admission requires both a per-workspace advisory lock and a durable WorkspaceOwnership check. A released OS lock alone does not prove that an old command stopped. Separate Git worktrees are distinct workspaces; shared repository knowledge uses short database transactions.
 
 Before any new or resumed session receives write authority, acquire the workspace lock and inspect the private ownership registry. An active/recovery-required claim from an exited engine requires reconciling or terminating all its surviving commands and resolving unknown mutations first. Never bypass recovery by creating a new session. Persist the new owner before dispatch; mark ownership clean only after owned processes have stopped and operations have settled.
 
@@ -130,4 +130,4 @@ When reserves are exhausted, deterministic cleanup and artifact reporting remain
 
 ## Contract validation
 
-All implementations validate record shapes, referential integrity, scopes, enum transitions, and effective profile digest. Test fixtures live under the future tests/ tree and are referenced by [evaluation](evaluation.md). Subsystem documents may refine behavior but must not redefine these contracts.
+All implementations validate record shapes, referential integrity, scopes, enum transitions, and effective profile digest. Focused fixtures live under `tests/` and are grouped by subsystem; the acceptance matrix is in [evaluation](evaluation.md). Subsystem documents may refine behavior but must not redefine these contracts.

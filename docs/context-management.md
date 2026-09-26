@@ -1,6 +1,6 @@
 # Context management
 
-Status: normative v1 design. This document owns what the model sees and how that representation changes.
+Status: runtime reference. This document owns what the model sees and how that representation changes.
 
 ## Durable record versus active context
 

@@ -1,6 +1,6 @@
 # Execution and tools
 
-Status: normative v1 design. Tool contracts are model-facing interfaces; their enforcement belongs to the harness.
+Status: runtime reference. Tool contracts are model-facing interfaces; their enforcement belongs to the harness.
 
 ## Tool registry
 

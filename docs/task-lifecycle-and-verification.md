@@ -1,6 +1,6 @@
 # Task lifecycle, recovery, and verification
 
-Status: normative v1 design. Shared enums and records are defined in [interfaces-and-data](interfaces-and-data.md).
+Status: runtime reference. Shared enums and records are defined in [interfaces-and-data](interfaces-and-data.md).
 
 ## State and phase
 
