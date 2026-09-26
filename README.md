@@ -18,7 +18,7 @@ The default development profile is `openrouter-coding-free` (Cohere North Mini C
 
 ## Terminal interface
 
-Ion uses an OpenCode-style start screen and session layout, with the supplied `logo.PNG` rendered into terminal cells. The font comes from your terminal settings. The PNG and stylesheet are packaged with the application.
+Ion uses a compact workbench layout built around a task dock, session timeline, and run-state rail. The interface is designed for JetBrains Mono; select that font in your terminal profile before launching Ion. Textual inherits the terminal emulator's active font and cannot replace it from application CSS.
 
 | Action | Shortcut / command |
 | --- | --- |
