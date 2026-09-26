@@ -11,6 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from ion.contracts import ModelProfile, TaskSpec
 
 
+class EconomyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: bool = True
+    max_requests: int = Field(default=12, ge=2, le=100)
+    max_total_tokens: int = Field(default=24000, ge=2048)
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal[1]
@@ -18,6 +25,7 @@ class AppConfig(BaseModel):
     evaluation_profile: str | None = None
     profiles: dict[str, dict]
     model_catalog: dict = Field(default_factory=dict)
+    economy: EconomyConfig = Field(default_factory=EconomyConfig)
 
 
 def load_config(path: Path) -> AppConfig:

@@ -47,3 +47,14 @@ async def test_rate_limit_exposes_retry_after_without_provider_body():
     assert events[0].error == "provider rate limit"
     assert events[0].retry_after_seconds == 7
     assert "private provider details" not in str(events[0])
+
+
+@pytest.mark.asyncio
+async def test_provider_http_errors_are_useful_but_do_not_include_body():
+    profile = resolve_profile(load_config(Path(__file__).resolve().parents[1] / "ion.toml"), "groq-qwen-dev", "product")
+    request = ModelRequest(messages=({"role": "user", "content": "Hello"},), max_output_tokens=100, profile_digest="fixture")
+    for status, expected in ((400, "provider rejected request (400)"), (503, "provider server error (503)")):
+        transport = httpx.MockTransport(lambda _, code=status: httpx.Response(code, text="private provider details"))
+        events = [item async for item in OpenAICompatibleProvider(profile, "fixture-key", transport).generate(request)]
+        assert events[0].error == expected
+        assert "private provider details" not in str(events[0])
