@@ -1,0 +1,50 @@
+Screen {
+    background: #141414;
+    color: #e7e5e4;
+}
+#body { height: 1fr; padding: 0 2; }
+#main { width: 1fr; height: 1fr; }
+#center { height: 1fr; align: center middle; }
+#home { height: auto; width: 76; max-width: 100%; margin: 0 0 2 0; align-horizontal: center; }
+Brand { width: 100%; height: 8; margin: 0 0 2 0; content-align: center middle; }
+#home-caption { text-align: center; color: #777777; height: 1; }
+#session-header { height: 3; padding: 1 1 0 1; color: #e7e5e4; text-style: bold; display: none; }
+#activity { height: 1fr; padding: 1; display: none; background: #141414; border: none; scrollbar-size: 1 1; }
+#composer-wrap { height: auto; width: 76; max-width: 100%; align-horizontal: center; }
+#composer { height: auto; width: 100%; background: #1e1e1e; border-left: thick #fab283; padding: 1 2 0 2; }
+#task { height: 3; min-height: 3; max-height: 8; border: none; padding: 0; background: #1e1e1e; color: #eeeeee; }
+#task:focus { border: none; }
+#composer-meta { height: 2; padding: 0; background: #1e1e1e; align-vertical: middle; }
+#profile { width: 1fr; height: 1; color: #a3a3a3; }
+#run, #cancel { min-width: 6; width: auto; height: 1; border: none; padding: 0 1; margin: 0 0 0 1; background: #1e1e1e; color: #fab283; }
+#cancel { display: none; }
+#run:hover, #cancel:hover { background: #303030; }
+#hints { height: 1; color: #737373; text-align: right; margin: 1 0 0 0; }
+#status { height: 1; color: #aaaaaa; margin: 1 0; text-overflow: ellipsis; }
+#bottom { height: 1; padding: 0 2; margin-bottom: 1; color: #737373; }
+#cwd { width: 1fr; }
+#version { width: auto; color: #aaaaaa; }
+#sidebar { display: none; width: 29; background: #1a1a1a; padding: 1 2; margin-left: 2; }
+.side-heading { color: #e7e5e4; text-style: bold; margin-top: 1; height: auto; }
+.side-text { color: #909090; height: auto; margin: 0 0 1 0; }
+.session #center { align: center bottom; height: auto; }
+.session #home { display: none; }
+.session #composer-wrap { width: 100%; }
+.session #session-header, .session #activity { display: block; }
+.session.sidebar-visible #sidebar { display: block; }
+.session.narrow #sidebar { display: none; }
+.narrow #body { padding: 0 1; }
+.narrow #hints { text-align: left; }
+.narrow #home { margin-bottom: 1; }
+.short Brand { height: 8; margin-bottom: 0; }
+.short #home-caption { display: none; }
+.short #home { margin-bottom: 0; }
+.short #status { margin: 0; }
+Picker, EntryDialog { align: center middle; background: #000000 55%; }
+#dialog, #entry-dialog { width: 70; max-width: 94%; height: auto; max-height: 85%; background: #202020; padding: 1 2; border: none; }
+#dialog-title { height: 2; text-style: bold; color: #e7e5e4; }
+#dialog-hint { height: auto; color: #848484; margin-top: 1; }
+#filter, #entry { height: 3; border: none; background: #292929; padding: 1; margin-bottom: 1; }
+#filter:focus, #entry:focus { border: none; }
+#choices { height: auto; max-height: 15; min-height: 2; border: none; padding: 0; background: #202020; }
+#choices > .option-list--option-highlighted { background: #38312c; color: #fab283; text-style: bold; }
