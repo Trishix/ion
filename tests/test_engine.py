@@ -31,9 +31,12 @@ async def test_scripted_coding_loop_changes_file_and_verifies_relevant_check(tmp
         [ModelEvent(kind="tool_call", tool="command_start", arguments={"command": f"{sys.executable} -m pytest tests/test_bug.py -q"}, call_id="c3"), ModelEvent(kind="completed")],
         [ModelEvent(kind="tool_call", tool="finish_request", arguments={"summary": "Fixed value"}, call_id="c4"), ModelEvent(kind="completed")],
     ]
-    engine = Engine(config, ScriptedProvider(turns), dispatcher)
+    provider = ScriptedProvider(turns)
+    engine = Engine(config, provider, dispatcher)
     task = TaskSpec(text="Make value return 2", repo_path=str(repo), profile_name="groq-qwen-dev")
+    await engine.steer("Do not change the test file")
     result = await engine.run(task)
+    assert "Do not change the test file" in provider.requests[0].messages[0]["content"]
     assert (repo / "bug.py").read_text().endswith("return 2\n")
     assert result.outcome.value == "verified"
     assert result.patch_artifact_id

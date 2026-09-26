@@ -90,5 +90,23 @@ class RunStore:
             for task_id, created_at, status, task_json, result_json in rows
         ]
 
+    def inspect(self, task_id: str) -> dict | None:
+        row = self.connection.execute(
+            "SELECT created_at, updated_at, status, task_json, result_json FROM runs WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        created_at, updated_at, status, task_json, result_json = row
+        events = [json.loads(item[0]) for item in self.connection.execute(
+            "SELECT event_json FROM events WHERE task_id = ? ORDER BY sequence", (task_id,)
+        )]
+        return {
+            "task_id": task_id, "created_at": created_at, "updated_at": updated_at,
+            "status": status, "task": json.loads(task_json),
+            "result": json.loads(result_json) if result_json else None,
+            "events": events,
+        }
+
     def close(self) -> None:
         self.connection.close()

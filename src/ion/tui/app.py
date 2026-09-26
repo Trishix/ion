@@ -54,7 +54,7 @@ class IonApp(App):
             yield Static("", id="profile")
             yield Input(value=self.repo_hint, placeholder="Target repository path", id="repo")
             yield TextArea(id="task")
-            yield Input(placeholder="/models, /doctor, or /history", id="command")
+            yield Input(placeholder="/models, /doctor, /history, /inspect ID, or /steer TEXT", id="command")
             with Horizontal(id="actions"):
                 yield Button("Run task", id="run", variant="primary")
                 yield Button("Cancel", id="cancel")
@@ -67,6 +67,7 @@ class IonApp(App):
 
     def on_mount(self) -> None:
         self.store = RunStore(self._data_root() / "runs.sqlite3")
+        self.query_one("#cancel", Button).disabled = True
         self._profile_label()
 
     def on_unmount(self) -> None:
@@ -107,8 +108,29 @@ class IonApp(App):
             assert self.store
             rows = self.store.recent()
             self._log("\n".join(f"{row['created_at']} · {row['status']} · {row['task']['text'][:100]} · {row['task_id']}" for row in rows) if rows else "No saved tasks yet.")
+        elif command.startswith("/inspect "):
+            assert self.store
+            row = self.store.inspect(command.removeprefix("/inspect ").strip())
+            if row is None:
+                self._status("Task ID not found. Use /history to list saved runs.")
+            else:
+                result = row["result"]
+                details = [
+                    f"Task: {row['task_id']}", f"Status: {row['status']}",
+                    f"Repository: {row['task']['repo_path']}", f"Request: {row['task']['text']}",
+                ]
+                if result:
+                    details += [f"Result: {result['summary']}", f"Changed: {', '.join(result['changed_files']) or 'none'}", f"Verification records: {len(result['verification_ids'])}"]
+                details += [f"{event['phase']}: {event['message']}" for event in row["events"][-20:]]
+                self._log("\n".join(details))
+        elif command.startswith("/steer "):
+            if self.engine is None:
+                self._status("No task is running. Enter a new task in the task field.")
+            else:
+                await self.engine.steer(command.removeprefix("/steer "))
+                self._status("Steering queued for the next model turn.")
         else:
-            self._status("Available commands: /models, /doctor, /history")
+            self._status("Available commands: /models, /doctor, /history, /inspect ID, /steer TEXT")
 
     async def show_models(self) -> None:
         container = self.query_one("#models", VerticalScroll)
@@ -150,17 +172,26 @@ class IonApp(App):
                 return
             self.running_task = asyncio.create_task(self._run_task())
         elif button_id == "cancel":
+            if not self.running_task or self.running_task.done():
+                self._status("No task is running.")
+                return
             if self.engine:
                 await self.engine.cancel()
             if self.running_task and not self.running_task.done():
                 self.running_task.cancel()
             self._status("Cancelling current task; partial files are preserved.")
         elif button_id.startswith("profile-"):
+            if self.running_task and not self.running_task.done():
+                self._status("Wait for the current task before changing profiles.")
+                return
             self.profile_name = list(self.config.profiles)[int(button_id.split("-")[1])]
             self.profile_override = None
             self._profile_label()
             self.run_worker(self.show_models(), exclusive=True)
         elif button_id in self.options:
+            if self.running_task and not self.running_task.done():
+                self._status("Wait for the current task before changing models.")
+                return
             name, info = self.options[button_id]
             profile = resolve_profile(self.config, name, self.mode)
             if info.max_output_tokens is None:
@@ -192,6 +223,8 @@ class IonApp(App):
             assert self.store
             self.store.begin(task)
             self.active_task_id = task.task_id
+            self.query_one("#run", Button).disabled = True
+            self.query_one("#cancel", Button).disabled = False
             self._status("Running task…")
             consumer = asyncio.create_task(self._consume_events())
             try:
@@ -215,6 +248,8 @@ class IonApp(App):
                 self.store.interrupt(self.active_task_id)
                 self.active_task_id = None
             self.engine = None
+            self.query_one("#run", Button).disabled = False
+            self.query_one("#cancel", Button).disabled = True
 
     async def _consume_events(self) -> None:
         assert self.engine

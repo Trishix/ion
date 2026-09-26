@@ -12,7 +12,7 @@ export GROQ_API_KEY="<your key>"
 make run
 ```
 
-The default profile is Groq Qwen. Enter the target repository path and task in the TUI, then select **Run task**. `ION_REPO=/path/to/repo make run` prefills the path. `/doctor` shows local configuration and credential status. `/models` lists profiles and, when a key is available, discovers selectable provider models. `/history` shows saved runs. `make test` runs the offline suite. `make clean` removes disposable build and test caches.
+The default profile is Groq Qwen. Enter the target repository path and task in the TUI, then select **Run task**. `ION_REPO=/path/to/repo make run` prefills the path. `/doctor` shows local configuration and credential status. `/models` lists profiles and, when a key is available, discovers selectable provider models. `/history` shows saved runs; `/inspect TASK_ID` shows their details. `/steer TEXT` adds an instruction to a running task at its next model turn. `make test` runs the offline suite. `make clean` removes disposable build and test caches.
 
 ## Choose a provider
 

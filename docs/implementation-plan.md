@@ -20,8 +20,8 @@ The approved first milestone is now detailed in the [hackathon core implementati
 | --- | --- | --- |
 | A — Foundation | Root Makefile, locked dependencies, typed records, TOML profiles, TUI shell, and offline tests implemented | Clean-checkout reproducibility and full configuration edge cases |
 | B — Provider path | OpenAI-compatible gateway, Groq and OpenRouter profiles, direct provider examples, `/models`, and `/doctor` implemented | Live credential probes for each intended provider and exact official model profile |
-| C — Coding loop | Guarded file edits, bounded commands, artifacts, request budget, and pytest evidence implemented | Broader task criteria and independent verification fixtures |
-| D — Product hardening | Run history persisted in SQLite; foreground TUI launches and exposes `/history` | Crash-safe operation journal, reconnection/resume, context compaction, repository memory, and complete P0 acceptance |
+| C — Coding loop | Guarded file edits, bounded commands, artifacts, request budget, and narrow pytest evidence implemented | Broader task criteria and independent verification fixtures |
+| D — Product hardening | Foreground TUI has saved run inspection and in-flight steering; context trims complete older tool turns when needed | Crash-safe operation journal, reconnection/resume, semantic compaction, repository memory, and complete P0 acceptance |
 
 These are implementation checkpoints, not claims that the full acceptance scenarios below have passed.
 
