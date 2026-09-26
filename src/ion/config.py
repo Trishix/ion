@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import tomllib
+import os
+from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from ion.contracts import ModelProfile, TaskSpec
+
+
+class AppConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal[1]
+    default_profile: str
+    evaluation_profile: str | None = None
+    profiles: dict[str, dict]
+    model_catalog: dict = Field(default_factory=dict)
+
+
+def load_config(path: Path) -> AppConfig:
+    with path.open("rb") as stream:
+        data = tomllib.load(stream)
+    config = AppConfig.model_validate(data)
+    if config.default_profile not in config.profiles:
+        raise ValueError("default_profile is missing")
+    if config.evaluation_profile:
+        if config.evaluation_profile not in config.profiles:
+            raise ValueError("evaluation_profile is missing")
+        resolve_profile(config, config.evaluation_profile, "evaluation")
+    for name in config.profiles:
+        resolve_profile(config, name, "product")
+    return config
+
+
+def resolve_profile(config: AppConfig, name: str, mode: Literal["product", "evaluation"]) -> ModelProfile:
+    raw = dict(config.profiles[name])
+    if "model" in raw:
+        raw["model_id"] = raw.pop("model")
+    if "base_url" in raw:
+        raw["endpoint"] = raw.pop("base_url")
+    profile = ModelProfile.model_validate(raw)
+    url = urlsplit(profile.endpoint)
+    if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
+        raise ValueError("provider endpoint must be an HTTPS URL without embedded credentials")
+    if mode == "evaluation" and not profile.locked:
+        raise ValueError("evaluation profile must be locked")
+    return profile
+
+
+def validate_task(input: dict) -> TaskSpec:
+    return TaskSpec.model_validate(input)
+
+
+def resolve_credential(profile: ModelProfile, mode: Literal["product", "evaluation"] = "product") -> tuple[str, str]:
+    if mode == "evaluation":
+        return os.environ.get("AI_API_KEY", ""), "AI_API_KEY"
+    for name in (profile.api_key_env, "AI_API_KEY"):
+        value = os.environ.get(name, "")
+        if value:
+            return value, name
+    return "", profile.api_key_env
