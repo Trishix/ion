@@ -27,6 +27,8 @@ The committed [ion.toml](ion.toml) contains Groq Qwen, OpenRouter Qwen and DeepS
 
 The direct provider APIs may require a paid account. A `:free` OpenRouter model is subject to provider availability and rate limits. Catalog availability is checked live; these profiles are examples, not a promise that every model remains free or available.
 
+For local use, copy `.env.example` to `.env` beside the active `ion.toml` and fill in the key for the provider you selected. Ion loads that file without overriding environment variables already set by the shell. Set `ION_ENV_FILE` to use a different local file. Locked evaluation mode skips dotenv and reads only the externally provided `AI_API_KEY`.
+
 To connect another OpenAI compatible text model, create a TOML file outside the target repository with `schema_version = 1`, `default_profile`, and a `[profiles.NAME]` section. Specify `provider`, `base_url` (HTTPS), `model`, `api_key_env`, `protocol = "openai_chat"`, `tool_protocol = "native"` or `"structured_json"`, `text_only = true`, `locked = false`, `context_window`, and `max_output_tokens`. Launch with `ION_CONFIG=/path/to/your.toml make run`. A provider specific key is preferred; `AI_API_KEY` is the fallback in normal use. Never place key values in TOML or Git.
 
 ## Hackathon evaluation
