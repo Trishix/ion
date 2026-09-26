@@ -91,7 +91,7 @@ Schema migrations are versioned, transactional where SQLite permits, and precede
 
 ## Configuration and model boundary
 
-Product precedence: defaults, user configuration, explicit repository configuration, then user-confirmed TUI overrides. Credentials come exclusively from environment, never these files. Repository configuration cannot widen security capabilities; trusted user configuration owns permission grants.
+Product precedence in the current core: committed defaults, an optional user-owned TOML selected through ION_CONFIG, then TUI profile/model selection. Target-repository configuration is not loaded as application authority. Credentials come exclusively from environment, never these files. Product profiles may declare a provider-specific key variable with AI_API_KEY fallback; locked evaluation reads only AI_API_KEY. Repository configuration cannot widen security capabilities; trusted user configuration owns permission grants.
 
 Evaluation loads a committed nonsecret profile, then runtime AI_API_KEY. Model identity, endpoint, protocol, memory policy, tool policy, and budgets are locked for the task. Repository settings cannot override them, and TUI configuration cannot override the locked evaluation profile. Official amendments require a new profile and a new task, not a silent switch mid-session.
 

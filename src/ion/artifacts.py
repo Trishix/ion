@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+from uuid import uuid4
+
+from ion.contracts import ArtifactRef
+
+
+class ArtifactStore:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    def put(self, data: bytes, kind: str, redacted: bool = False, complete: bool = True) -> ArtifactRef:
+        artifact_id = str(uuid4())
+        path = self.root / artifact_id
+        temp = path.with_suffix(".tmp")
+        fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temp.replace(path)
+        return ArtifactRef(
+            artifact_id=artifact_id,
+            kind=kind,
+            relative_store_path=artifact_id,
+            sha256=hashlib.sha256(data).hexdigest(),
+            byte_count=len(data),
+            complete=complete,
+            redaction_applied=redacted,
+        )
+
+    def read(self, artifact_id: str) -> bytes:
+        if "/" in artifact_id or ".." in artifact_id:
+            raise ValueError("invalid artifact id")
+        return (self.root / artifact_id).read_bytes()

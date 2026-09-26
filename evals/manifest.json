@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "offline-readme-edit",
+      "task": "Update a README description while preserving existing facts",
+      "expected_files": ["README.md"],
+      "required_check": false
+    }
+  ]
+}

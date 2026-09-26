@@ -1,6 +1,6 @@
 # Hackathon rules and compliance contract
 
-Status: proposed product specification; implementation and compliance checks are not yet complete.
+Status: organizer rules transcribed; a foreground implementation exists, while final compliance checks are incomplete.
 
 This is Ion's authoritative transcription of the organizer requirements supplied by the user on 2026-09-26. Source labels below refer to the numbered sections of **AI Harness Hackathon 2026 — Standardised Makefile-Based Evaluation Setup**, and the supplied problem statement. No public organizer URL or separate scoring rubric was provided. The duplicate copies in the conversation are one source, not two independent rule sets.
 
@@ -63,6 +63,6 @@ OPEN-01 through OPEN-07 block claims of submission readiness, not architecture w
 
 The documented official sequence is: obtain repository, enter its root, export AI_API_KEY externally, run make setup, run make run, supply the official issue/test case in the launched TUI, and optionally run make test. There must be no interactive login, key copied into a file, or second service credential in this path. The TUI is the only user-facing task interface; organizer-mandated Makefile targets remain the packaging/evaluation entrypoint, not a second product interface.
 
-The eventual README must show that sequence without including a real credential. An example environment file may contain only the empty assignment AI_API_KEY=.
+The root README shows the sequence without a real credential. The blank .env.example also lists optional provider-specific variable names for local product use; official evaluation still requires only AI_API_KEY.
 
 Submission compliance requires evidence from the final submitted revision. A documentation review does not establish runtime compliance. See [evaluation](evaluation.md) and [implementation-plan](implementation-plan.md).
