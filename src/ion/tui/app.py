@@ -506,6 +506,11 @@ class IonApp(App):
                 self._log(limitation)
             if result.patch_artifact_id:
                 self._log(Syntax(artifacts.read(result.patch_artifact_id).decode('utf-8', 'replace')[:12000], 'diff', theme='monokai', background_color='#141414', word_wrap=True))
+            # A refresh callback scheduled by _session can run after the task
+            # finishes and clear RichLog while its deferred writes are still
+            # pending. Reflow synchronously once all final output is present so
+            # callers awaiting running_task observe a complete transcript.
+            self._reflow_transcript()
             self._status(f"{result.outcome.value}: {result.summary[:160]}")
             result_summary = result.summary.lower()
             if "quota exhausted" in result_summary:
