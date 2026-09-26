@@ -58,7 +58,6 @@ Brand {
     height: 2;
     padding-top: 1;
     color: #687376;
-    border-top: solid #293237;
 }
 
 #session-header {

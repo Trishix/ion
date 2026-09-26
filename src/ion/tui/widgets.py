@@ -33,9 +33,9 @@ class Brand(Static):
 
         output = Text()
         lockup = {
-            1: ('ION', 'bold #e5e9e8'),
-            3: ('AUTONOMOUS', 'bold #82b7b5'),
-            4: ('REPOSITORY WORKBENCH', '#7d888b'),
+            1: ('█ █▀█ █▄ █', 'bold #e5e9e8'),
+            2: ('█ █▄█ █ ▀█', 'bold #e5e9e8'),
+            4: ('AUTONOMOUS REPOSITORY WORKBENCH', '#82b7b5'),
         }
         for row in range(7):
             for col in range(14):
