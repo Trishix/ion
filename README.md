@@ -1,6 +1,6 @@
 # Ion
 
-Author: neel
+
 
 Ion is a terminal coding harness for the AI Harness Hackathon 2026. It reads text tasks, inspects local repositories, applies guarded edits, runs bounded commands, and reports changed files with verification evidence.
 
