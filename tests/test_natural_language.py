@@ -15,6 +15,7 @@ from ion.workspace import Workspace
 
 def harness(tmp_path, turns, mode='product'):
     config = load_config(Path(__file__).resolve().parents[1] / 'ion.toml')
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True})})
     workspace = Workspace.capture(tmp_path)
     artifacts = ArtifactStore(tmp_path.parent / (tmp_path.name + '-artifacts'))
     dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))

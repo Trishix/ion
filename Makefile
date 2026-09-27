@@ -6,11 +6,14 @@ UV_PYTHON_INSTALL_DIR ?= $(ION_ROOT)/.uv-tools/python
 export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
 
-.PHONY: setup run test clean
+.PHONY: setup install run test clean
 
 setup:
 	python3 "$(ION_ROOT)/scripts/bootstrap.py"
 	"$(UV)" sync --project "$(ION_ROOT)" --locked
+
+install: setup
+	"$(UV)" tool install --editable "$(ION_ROOT)" --python "$(ION_ROOT)/.venv/bin/python"
 
 run:
 	"$(UV)" run --project "$(ION_ROOT)" --locked ion

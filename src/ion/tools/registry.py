@@ -16,6 +16,10 @@ from ion.workspace import Workspace, digest
 
 
 SPECS: dict[str, dict[str, Any]] = {
+    "trace_symbol": {"symbol": "string"},
+    "web_search": {"query": "string"},
+    "infra_scan": {},
+    "run_linter": {},
     "repo_list": {"relative_path": "string"},
     "repo_search": {"query": "string"},
     "file_read": {"relative_path": "string"},
@@ -44,6 +48,8 @@ def _optional_properties(name: str) -> dict[str, Any]:
         result: dict[str, Any] = {"offset": {"type": "integer", "minimum": 0}}
     else:
         result = {}
+    if name == "run_linter":
+        result["relative_path"] = {"type": "string"}
     if name == "file_read":
         result["limit"] = {"type": "integer", "minimum": 256, "maximum": 16000}
     elif name == "artifact_read":
@@ -68,6 +74,10 @@ def tool_schemas(names: tuple[str, ...] | None = None) -> tuple[dict[str, Any], 
         "function": {
             "name": name,
             "description": {
+                "trace_symbol": "Find symbol definitions and references",
+                "web_search": "Search web; top three snippets",
+                "infra_scan": "Detect frameworks, services and declared ports",
+                "run_linter": "Run installed project linter; optional path",
                 "repo_list": "List repository text files",
                 "repo_search": "Find literal text; returned offsets can be passed to file_read. Optionally narrow relative_path.",
                 "file_read": "Read up to 4000 characters and full-file SHA-256; use next_offset to read more",
@@ -140,11 +150,13 @@ def tool_schemas(names: tuple[str, ...] | None = None) -> tuple[dict[str, Any], 
 
 
 class ToolDispatcher:
-    def __init__(self, workspace: Workspace, artifacts: ArtifactStore, supervisor: Any, allow_commands: bool = False) -> None:
+    def __init__(self, workspace: Workspace, artifacts: ArtifactStore, supervisor: Any, allow_commands: bool = False, *, http_transport=None, lint_command: tuple[str, ...] = ()) -> None:
         self.workspace = workspace
         self.artifacts = artifacts
         self.supervisor = supervisor
         self.allow_commands = allow_commands
+        self.http_transport = http_transport
+        self.lint_command = lint_command
         self.results: dict[str, ToolResult] = {}
         self.reads: dict[str, tuple[str, str, int, str]] = {}
         self.visible_write_reads: dict[str, tuple[str, str, int, str]] | None = None
@@ -324,6 +336,14 @@ class ToolDispatcher:
                 if sum(len(edit["new_text"].encode("utf-8")) for edit in args["edits"]) > MAX_PATCH_REPLACEMENT_BYTES:
                     raise ValueError("patch replacement batch exceeds size limit")
                 data = self._patch(args["edits"])
+            elif name == "trace_symbol":
+                data = self._trace_symbol(args["symbol"])
+            elif name == "infra_scan":
+                data = self._infra_scan()
+            elif name == "web_search":
+                data = await self._web_search(args["query"])
+            elif name == "run_linter":
+                data = await self._run_linter(args.get("relative_path"))
             elif name == "command_start":
                 if not self.allow_commands:
                     raise ValueError("command execution is disabled for this workspace-locked session")
@@ -548,3 +568,21 @@ class ToolDispatcher:
             for path in temp_paths:
                 path.unlink(missing_ok=True)
         return {"changed_files": [item[0] for item in prepared]}
+
+    def _trace_symbol(self, symbol: str) -> dict:
+        from ion.tools.scanning import trace_symbol
+        return trace_symbol(self.workspace, symbol)
+
+    def _infra_scan(self) -> dict:
+        from ion.tools.scanning import infra_scan
+        return infra_scan(self.workspace)
+
+    async def _web_search(self, query: str) -> dict:
+        from ion.tools.research import web_search
+        return await web_search(query, self.http_transport)
+
+    async def _run_linter(self, relative_path: str | None = None) -> dict:
+        if not self.allow_commands:
+            raise ValueError("command execution is disabled for this session")
+        from ion.tools.linting import run_linter
+        return await run_linter(self.workspace, self.supervisor, self.lint_command, relative_path)

@@ -11,7 +11,8 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, RichLog, Static
+from textual.widgets import Button, OptionList, RichLog, Static, TextArea
+from textual.widgets.option_list import Option
 
 from ion.artifacts import ArtifactStore
 from ion.config import AppConfig, resolve_credential, resolve_profile, validate_task
@@ -31,6 +32,7 @@ from ion.tools.registry import ToolDispatcher
 from ion.workspace import Workspace
 from ion.tui.widgets import Brand, Composer, EntryDialog, Picker, Transcript
 from ion.tui.logs import PHASE_LABELS, activity_message, format_diagnostic, mask_keys
+from ion.tui.commands import COMMANDS
 
 
 class IonApp(App, inherit_bindings=False):
@@ -48,8 +50,9 @@ class IonApp(App, inherit_bindings=False):
         if not root.is_dir():
             raise ValueError('workspace root must be a directory')
         self.repo_path = str(root)
+        self.displayed_workspace = self.repo_path
         self.mode = 'evaluation' if config.evaluation_profile else 'product'
-        self.profile_name = config.evaluation_profile or config.default_profile
+        self.profile_name: str | None = config.evaluation_profile
         self.profile_override: ModelProfile | None = None
         self.engine: Engine | None = None
         self.running_task: asyncio.Task | None = None
@@ -59,6 +62,7 @@ class IonApp(App, inherit_bindings=False):
         self.session_server: SessionSocketServer | None = None
         self.catalog = None
         self._transcript: list = []
+        self._dismissed_command_text: str | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id='masthead'):
@@ -74,6 +78,7 @@ class IonApp(App, inherit_bindings=False):
                         yield Brand()
                         yield Static('LOCAL TOOLS  /  YOUR MODELS  /  VERIFIED CHANGES', id='home-caption')
                     with Vertical(id='composer-wrap'):
+                        yield OptionList(id='command-suggestions', markup=False)
                         yield Static('TASK / STEER', id='composer-label')
                         with Vertical(id='composer'):
                             yield Composer(id='task', placeholder='Describe one outcome… or type /help', highlight_cursor_line=False)
@@ -81,7 +86,7 @@ class IonApp(App, inherit_bindings=False):
                                 yield Static('', id='profile', markup=False)
                                 yield Button('send ↵', id='run')
                                 yield Button('stop esc', id='cancel', disabled=True)
-                        yield Static('/help  /models  /logs  /stop    Ctrl+C exit', id='hints')
+                        yield Static('Type / for commands    Shift+Enter new line    Ctrl+C exit', id='hints')
                         yield Static('', id='status', markup=False)
             with Vertical(id='sidebar'):
                 yield Static('RUN STATE', id='sidebar-title')
@@ -114,7 +119,12 @@ class IonApp(App, inherit_bindings=False):
         self.default_screen.add_class('sidebar-visible')
         self._profile_label()
         self._repo_label()
-        self.query_one(Composer).focus()
+        if self.mode == 'evaluation' and len(self.config.evaluation_profiles) > 1:
+            self._status('DeepSeek selected. Using a Qwen key? Use /model to select Qwen.')
+        composer = self.query_one(Composer)
+        composer.suggestions = self.query_one('#command-suggestions', OptionList)
+        composer.suggestions.can_focus = False
+        composer.focus()
 
     def on_resize(self, event) -> None:
         self.default_screen.set_class(event.size.width < 105, 'narrow')
@@ -136,19 +146,27 @@ class IonApp(App, inherit_bindings=False):
         return Path(os.environ.get('ION_DATA_DIR', Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'ion'))
 
     def _profile(self) -> ModelProfile:
+        if self.profile_name is None:
+            raise ValueError('No model selected. Use /models to select a model.')
         return self.profile_override or resolve_profile(self.config, self.profile_name, self.mode)
 
     def _profile_label(self) -> None:
+        if self.profile_name is None:
+            self.query_one('#profile', Static).update('MODEL  No model selected')
+            self.query_one('#model-info', Static).update('No model selected\nUse /models to choose')
+            return
         profile = self._profile()
         credential, _ = resolve_credential(profile, self.mode)
         label = Text('MODEL  ', style='#82b7b5')
         label.append(profile.model_id.split('/')[-1], style='#e5e9e8')
         label.append(f'  /  {profile.provider}' + ('  /  key needed' if not credential else ''), style='#7d888b')
         self.query_one('#profile', Static).update(label)
-        self.query_one('#model-info', Static).update(f'{profile.model_id.split("/")[-1]}\n{profile.provider}\nKey: {"***" if credential else "not set"}\n' + ('Evaluation locked' if self.mode == 'evaluation' else 'Selected for next task'))
+        selection = ('Evaluation · /model to choose provider' if len(self.config.evaluation_profiles) > 1 else 'Evaluation locked') if self.mode == 'evaluation' else 'Selected for next task'
+        self.query_one('#model-info', Static).update(f'{profile.model_id.split("/")[-1]}\n{profile.provider}\nKey: {"***" if credential else "not set"}\n' + selection)
 
-    def _repo_label(self) -> None:
-        path = self.repo_path.replace(str(Path.home()), '~', 1)
+    def _repo_label(self, workspace_root: Path | None = None) -> None:
+        self.displayed_workspace = str(workspace_root or self.repo_path)
+        path = self.displayed_workspace.replace(str(Path.home()), '~', 1)
         self.query_one('#cwd', Static).update(path)
         self.query_one('#repo-info', Static).update(path)
 
@@ -180,16 +198,76 @@ class IonApp(App, inherit_bindings=False):
     def _busy(self) -> bool:
         return bool(self.running_task and not self.running_task.done())
 
+    def _require_model(self) -> bool:
+        if self.profile_name is not None:
+            return True
+        self._status('Select a model with /models before continuing. Use /connect to add a provider key.')
+        return False
+
     def action_commands(self) -> None:
-        descriptions = [('/models', 'Choose a model'), ('/providers', 'View providers and masked keys'), ('/connect', 'Connect a provider for this session'), ('/sessions', 'Browse saved tasks'), ('/inspect TASK_ID', 'View a saved result'), ('/resume TASK_ID', 'Prepare a saved task to resume'), ('/steer TEXT', 'Guide the running task'), ('/logs', 'Read recent activity and errors'), ('/new', 'Start a new task'), ('/stop', 'Stop the running task'), ('/sidebar', 'Show or hide task details'), ('/repo', 'Show the current workspace'), ('/doctor', 'Check the provider connection'), ('/quit', 'Exit Ion (Ctrl+C)')]
-        items = [(command, f'{command:<19} {description}') for command, description in descriptions]
+        items = [(command, f'{command:<19} {description}') for command, description in COMMANDS]
         self.push_screen(Picker('Commands', items), self._picked_command)
+
+    def _hide_command_suggestions(self) -> None:
+        self.query_one('#command-suggestions', OptionList).display = False
+        self.default_screen.remove_class('suggesting')
+        self.query_one('#hints', Static).update('Type / for commands    Shift+Enter new line    Ctrl+C exit')
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if not isinstance(event.text_area, Composer):
+            return
+        text = event.text_area.text
+        choices = self.query_one('#command-suggestions', OptionList)
+        if text == self._dismissed_command_text:
+            self._hide_command_suggestions()
+            return
+        self._dismissed_command_text = None
+        matches = [
+            (command, description) for command, description in COMMANDS
+            if command.split(' ', 1)[0].startswith(text)
+        ] if text.startswith('/') and not any(char.isspace() for char in text) else []
+        choices.clear_options()
+        if not matches:
+            self._hide_command_suggestions()
+            return
+        choices.add_options(Option(f'{command:<19} {description}', id=command) for command, description in matches)
+        choices.highlighted = 0
+        choices.display = True
+        self.default_screen.add_class('suggesting')
+        self.query_one('#hints', Static).update('↑↓ browse   Tab complete   Enter select   Esc dismiss')
+
+    def _complete_command(self, command: str) -> None:
+        composer = self.query_one(Composer)
+        text = command.split(' ', 1)[0] + (' ' if ' ' in command else '')
+        self._dismissed_command_text = text
+        composer.text = text
+        composer.cursor_location = (0, len(text))
+        self._hide_command_suggestions()
+        composer.focus()
+
+    def on_composer_complete_command(self, event: Composer.CompleteCommand) -> None:
+        choices = self.query_one('#command-suggestions', OptionList)
+        if choices.highlighted is not None:
+            command = choices.get_option_at_index(choices.highlighted).id
+            if command:
+                self._complete_command(command)
+
+    def on_composer_dismiss_commands(self, event: Composer.DismissCommands) -> None:
+        self._dismissed_command_text = self.query_one(Composer).text
+        self._hide_command_suggestions()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != 'command-suggestions':
+            return
+        event.stop()
+        self._hide_command_suggestions()
+        self.query_one(Composer).text = ''
+        self._picked_command(event.option.id)
 
     def _picked_command(self, value: str | None) -> None:
         if value:
             if ' ' in value:
-                self.query_one(Composer).text = value.split(' ', 1)[0] + ' '
-                self.query_one(Composer).focus()
+                self._complete_command(value)
             else:
                 self.run_worker(self._command(value))
 
@@ -205,6 +283,7 @@ class IonApp(App, inherit_bindings=False):
         self.query_one('#activity', RichLog).clear()
         self._transcript.clear()
         self.query_one(Composer).text = ''
+        self._repo_label()
         self._status('')
         self.query_one(Composer).focus()
 
@@ -235,8 +314,10 @@ class IonApp(App, inherit_bindings=False):
                 await self.engine.steer(text)
                 self.query_one(Composer).text = ''
                 self._status('Steering queued for the next turn.')
-        else:
-            self.running_task = asyncio.create_task(self._run_task())
+        elif self._require_model():
+            from ion.tools.github import find_issue_url
+            issue_url = find_issue_url(text)
+            self.running_task = asyncio.create_task(self._run_github(issue_url, task_text=text) if issue_url else self._run_task(text))
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == 'run':
@@ -245,7 +326,21 @@ class IonApp(App, inherit_bindings=False):
             await self.action_cancel()
 
     async def _command(self, command: str) -> None:
-        if command in ('/model', '/models'):
+        if command == '/github' or command.startswith('/github '):
+            if self._busy():
+                self._status('A task is already running. Use /stop first.')
+                return
+            if not self._require_model():
+                return
+            from ion.tools.github import issue_identity
+            url = command.removeprefix('/github').strip()
+            try:
+                issue_identity(url)
+            except ValueError as exc:
+                self._status(str(exc))
+                return
+            self.running_task = asyncio.create_task(self._run_github(url))
+        elif command in ('/model', '/models'):
             self.run_worker(self.show_models(), exclusive=True, group='catalog')
         elif command in ('/help', '/'):
             self.action_commands()
@@ -254,12 +349,15 @@ class IonApp(App, inherit_bindings=False):
         elif command == '/sidebar':
             self.action_sidebar()
         elif command == '/repo':
-            self._status(f'Workspace locked to: {self.repo_path}')
+            self._status(f'Workspace locked to: {self.displayed_workspace}')
         elif command in ('/stop', '/cancel'):
             await self.action_cancel()
         elif command in ('/quit', '/exit'):
             await self.action_shutdown()
         elif command == '/providers':
+            if self.mode == 'evaluation':
+                self._show_evaluation_picker('Providers')
+                return
             self._session('Providers')
             seen = set()
             profiles = [self._profile()] if self.mode == 'evaluation' else [resolve_profile(self.config, name, 'product') for name in self.config.profiles]
@@ -269,12 +367,15 @@ class IonApp(App, inherit_bindings=False):
                 if identity in seen:
                     continue
                 seen.add(identity)
-                active = ' · active' if profile.endpoint == self._profile().endpoint else ''
+                active = ' · active' if self.profile_name is not None and profile.endpoint == self._profile().endpoint else ''
                 self._log(f'{profile.provider}{active}\n  {profile.endpoint}\n  {key_name}={"***" if key else "not set"}')
             self._status('Use /doctor to check the active connection.' if self.mode == 'evaluation' else 'Use /connect to add or replace a key.')
         elif command == '/connect':
-            if self.mode == 'evaluation' or self._busy():
-                self._status('Provider connection is locked during evaluation or a running task.')
+            if self.mode == 'evaluation':
+                self._show_evaluation_picker('Providers')
+                return
+            if self._busy():
+                self._status('Provider connection is locked during a running task.')
                 return
             items = []
             seen = set()
@@ -294,6 +395,8 @@ class IonApp(App, inherit_bindings=False):
         elif command.startswith('/resume '):
             self._resume(command.removeprefix('/resume ').strip())
         elif command == '/doctor':
+            if not self._require_model():
+                return
             self._session('Connection diagnostics')
             self._status('Checking provider connection…')
             checks = await Doctor().run(self.config, self.profile_name, self.mode, self._profile(), self.catalog)
@@ -391,12 +494,42 @@ class IonApp(App, inherit_bindings=False):
         self.query_one(Composer).text = row['task']['text']
         self._status('Task is safe to re-submit; the previous engine run is not replayed.')
 
-    async def show_models(self) -> None:
-        if self._busy() or self.mode == 'evaluation':
-            self._status('Model selection is locked during a task or evaluation.')
+    def _show_evaluation_picker(self, title: str = 'Models') -> None:
+        if self._busy():
+            self._status('Model selection is locked during a task.')
             return
-        profile = self._profile()
-        key, _ = resolve_credential(profile, self.mode)
+        names = self.config.evaluation_profiles
+        if len(names) < 2:
+            self._status('Model selection is locked to the configured evaluation profile.')
+            return
+        items = []
+        for name in names:
+            profile = resolve_profile(self.config, name, 'evaluation')
+            label = {'deepseek': 'DeepSeek', 'qwen': 'Qwen'}.get(profile.provider, profile.provider)
+            if profile.provider == 'qwen' and '://dashscope.aliyuncs.com/' in profile.endpoint:
+                label += ' (Beijing)'
+            active = '● ' if name == self.profile_name else '  '
+            items.append((name, f'{active}{label} / {profile.model_id}  ·  {profile.endpoint}'))
+
+        def select(name: str | None) -> None:
+            if name not in names or self._busy():
+                return
+            self.profile_name, self.profile_override = name, None
+            self.catalog = None
+            self._profile_label()
+            self._status(f'{self._profile().provider} selected · using exported AI_API_KEY. Use /doctor to check the connection.')
+
+        self.push_screen(Picker(title, items, 'Choose the provider that issued AI_API_KEY · no key re-entry · Esc to cancel'), select)
+
+    async def show_models(self) -> None:
+        if self.mode == 'evaluation':
+            self._show_evaluation_picker()
+            return
+        if self._busy():
+            self._status('Model selection is locked during a task.')
+            return
+        profile = self._profile() if self.profile_name is not None else None
+        key = resolve_credential(profile, self.mode)[0] if profile else ''
         choices = {}
         result = None
         if key and self.config.model_catalog.get('allow_runtime_discovery', True):
@@ -445,7 +578,36 @@ class IonApp(App, inherit_bindings=False):
             self._status('Model selected for the next task.')
         self.push_screen(Picker('Models', items, 'Configured profiles + live catalog · /connect to add a key'), select)
 
-    async def _run_task(self) -> None:
+    async def _run_github(self, url: str, *, task_text: str | None = None) -> None:
+        from ion.tools.github import import_issue, prepare_issue_workspace
+        self._status('Cloning the GitHub issue repository…')
+        self.query_one('#cancel', Button).disabled = False
+        self.query_one('#cancel', Button).display = True
+        try:
+            checkout = await prepare_issue_workspace(url, self._data_root() / 'workspaces')
+            self._session(f'GitHub issue: {url}')
+            self._log(f'Issue checkout: {checkout}')
+            self._repo_label(checkout)
+            self._status('Fetching GitHub issue and comments…')
+            markdown = await import_issue(url, checkout)
+            task = f'Investigate and fix the issue at {url} in this repository. Understand the code, implement the fix, and run relevant tests.'
+            if task_text and task_text != url:
+                task += f'\nUser request: {task_text}'
+            await self._run_task(task, context_markdown=markdown, workspace_root=checkout)
+        except asyncio.CancelledError:
+            self._status('GitHub import cancelled.')
+        except TimeoutError:
+            self._status('GitHub clone or import timed out. Check network access and retry.')
+        except (ValueError, OSError) as exc:
+            self._status(f'Cannot import GitHub issue: {exc}')
+        finally:
+            self.query_one('#cancel', Button).disabled = True
+            self.query_one('#cancel', Button).display = False
+
+    async def _run_task(self, text: str | None = None, *, context_markdown: str | None = None, workspace_root: Path | None = None) -> None:
+        if not self._require_model():
+            return
+        text = self.query_one(Composer).text if text is None else text
         profile = self.profile_override or resolve_profile(self.config, self.profile_name, self.mode)
         credential, key_name = resolve_credential(profile, self.mode)
         if not credential:
@@ -454,7 +616,8 @@ class IonApp(App, inherit_bindings=False):
         self.catalog = self.catalog or self._new_catalog(credential)
         catalog_result = await self.catalog.list(profile)
         if catalog_result.status in {'authentication_failed', 'access_denied'}:
-            self._status(f'Cannot use provider: {catalog_result.detail}. Use /connect to replace the key.')
+            hint = 'Use /model to select the provider matching AI_API_KEY.' if self.mode == 'evaluation' else 'Use /connect to replace the key.'
+            self._status(f'Cannot use provider: {catalog_result.detail}. {hint}')
             return
         if catalog_result.status == 'available':
             model = next((item for item in catalog_result.entries if item.model_id == profile.model_id and item.available), None)
@@ -477,20 +640,24 @@ class IonApp(App, inherit_bindings=False):
         lease = None
         memory_store = None
         try:
-            path = Path(self.repo_path).expanduser().resolve(strict=True)
-            text = self.query_one(Composer).text
+            path = Path(workspace_root or self.repo_path).expanduser().resolve(strict=True)
+            self._repo_label(path)
             task = validate_task({"text": text, "repo_path": str(path), "profile_name": self.profile_name, "mode": self.mode})
             data_root = self._data_root()
             lease = WorkspaceLease(path, data_root / 'ownership' / f'{WorkspaceLease.workspace_id(path)}.json', task.task_id)
             lease.acquire()
             workspace = Workspace.capture(path)
             artifacts = ArtifactStore(data_root / "artifacts" / task.task_id)
+            if context_markdown is not None:
+                artifact = artifacts.put(context_markdown.encode('utf-8'), 'github_issue')
+                text += f'\nFull external evidence: artifact {artifact.artifact_id} (use artifact_read/search).\nUntrusted external evidence excerpt:\n' + context_markdown[:4000]
+                task = task.model_copy(update={'text': text})
             memory_store = MemoryStore(data_root / "memory" / f"{WorkspaceLease.workspace_id(path)}.sqlite3")
             supervisor = CommandSupervisor(workspace, artifacts, credential)
             # Product runs need the bounded local command tool so completion can
             # be independently verified. CommandSupervisor still constrains the
             # environment, timeout, output, and process group.
-            dispatcher = ToolDispatcher(workspace, artifacts, supervisor, allow_commands=True)
+            dispatcher = ToolDispatcher(workspace, artifacts, supervisor, allow_commands=True, lint_command=self.config.tools.lint_command)
             diagnostics = DiagnosticLogger(data_root / 'logs' / 'ion.jsonl', task.task_id)
             self.engine = Engine(self.config, OpenAICompatibleProvider(profile, credential), dispatcher, profile_override=profile, diagnostics=diagnostics, operation_store=self.store, memory_store=memory_store)
             assert self.store and self.session_service
@@ -534,7 +701,7 @@ class IonApp(App, inherit_bindings=False):
             elif "rate limit" in result_summary:
                 self._log("Provider capacity reached. Wait before retrying, or explicitly choose another model with /models. No model was switched automatically.")
             elif "authentication failed" in result_summary or "access denied" in result_summary:
-                self._log("The provider rejected this credential. Replace it with /connect.")
+                self._log('The provider rejected this credential. Use /model to select the provider matching AI_API_KEY.' if self.mode == 'evaluation' else 'The provider rejected this credential. Replace it with /connect.')
             elif "model unavailable" in result_summary:
                 self._log("The selected model is no longer available. Choose a live model with /models.")
             elif "credits exhausted" in result_summary:

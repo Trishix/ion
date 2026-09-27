@@ -25,7 +25,7 @@ def _engine(tmp_path, provider, *, tokens=24000, input_budget=6000, files=None, 
     artifacts = ArtifactStore(tmp_path / "artifacts")
     dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts), allow_commands=allow_commands)
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
-    config = config.model_copy(update={"economy": config.economy.model_copy(update={"max_total_tokens": tokens, **(economy_fields or {})})})
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True, "max_total_tokens": tokens, **(economy_fields or {})})})
     profile = config.profiles[config.default_profile].copy()
     profile["input_budget_tokens"] = input_budget
     config = config.model_copy(update={"profiles": {**config.profiles, config.default_profile: profile}})

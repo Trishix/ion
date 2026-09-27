@@ -15,14 +15,14 @@ from ion.gateway import ModelGateway, profile_digest
 from ion.instructions import InstructionResolver
 from ion.intent import task_intent
 from ion.protocols import FinishAction, ToolAction, parse_action
-from ion.tools.bundles import select_tool_bundle
+from ion.tools.bundles import eligible_tools, select_tool_bundle
 from ion.tools.registry import ToolDispatcher, tool_schemas
 from ion.verification import CompletionGate, observe_command
 from ion.working_memory import LoopGuard, WorkingMemory
 from ion.memory.retrieval import MemoryRetriever
 
 
-READ_ONLY_TOOLS = ('repo_list', 'repo_search', 'file_outline', 'file_read', 'diff_summary', 'diff_inspect', 'artifact_search', 'artifact_read', 'finish_request')
+READ_ONLY_TOOLS = ('trace_symbol', 'infra_scan', 'web_search', 'repo_list', 'repo_search', 'file_outline', 'file_read', 'diff_summary', 'diff_inspect', 'artifact_search', 'artifact_read', 'finish_request')
 
 
 class Engine:
@@ -145,6 +145,9 @@ class Engine:
         read_counts: dict[tuple, int] = {}
         progress_hint = ""
         repair_attempts = 0
+        unavailable_turns = 0
+        recovered_tools: set[str] = set()
+        registered_tools = {item["function"]["name"] for item in (*tool_schemas(), *tool_schemas(("edit_file", "write_file")))}
         edit_phase_started = False
         expanded_output = bool(economy and edit_intent and re.search(r"\b(?:rewrite|replace|regenerate)\b", task.text, re.IGNORECASE))
         truncation_retries = 0
@@ -253,6 +256,14 @@ class Engine:
                     names += ("command_start",)
                 if intent == 'answer':
                     names = tuple(name for name in names if name in READ_ONLY_TOOLS)
+                eligible = eligible_tools(
+                    edit_intent=edit_intent, observed_page_count=read_count,
+                    has_artifacts=self.dispatcher.artifacts.has_artifacts(),
+                    target_hashes_available=bool(self.dispatcher.reads),
+                    allow_commands=self.dispatcher.allow_commands)
+                if intent == 'answer':
+                    eligible = eligible.intersection(READ_ONLY_TOOLS)
+                names = tuple(dict.fromkeys((*names, *sorted(recovered_tools.intersection(eligible)))))
                 schemas = tool_schemas(names)
                 offered_names = [item["function"]["name"] for item in schemas]
                 pointers = memory.render(economy=economy)
@@ -437,7 +448,9 @@ class Engine:
                         continue
                 if calls:
                     signature = json.dumps([(call.tool, call.arguments) for call in calls], sort_keys=True, separators=(",", ":"))
-                    loop_state = loop_guard.observe(signature, workspace.fingerprint())
+                    # Rejected calls made no progress because they never ran. Let
+                    # availability recovery handle them, not the execution loop guard.
+                    loop_state = loop_guard.observe(signature, workspace.fingerprint()) if all(call.tool in offered_names for call in calls) else None
                     if loop_state == "stop":
                         summary = "Stopped repeated tool cycle without workspace progress"
                         outcome = Outcome.blocked
@@ -453,6 +466,7 @@ class Engine:
                         error_category = "invalid_tool_batch"
                         break
                     finish_requested = False
+                    unavailable_in_turn = False
                     assistant: dict = {"role": "assistant", "content": content or None}
                     if profile.tool_protocol == "native":
                         assistant["tool_calls"] = [{"id": call.call_id, "type": "function", "function": {"name": call.tool, "arguments": json.dumps(call.arguments)}} for call in calls]
@@ -480,9 +494,31 @@ class Engine:
                             detail = f" · {call.arguments.get('relative_path', '')} · offset {call.arguments.get('offset', 0)}"
                         await self._emit(phase, f"{call.tool} requested{detail}")
                         if call.tool not in offered_names:
-                            unavailable_error = "This is a read-only question. Inspect the relevant files and answer without making changes or running commands." if intent == 'answer' else "Use the offered tools; this command is outside the current execution policy."
+                            if call.tool in eligible:
+                                recovered_tools.add(call.tool)
+                                reason = "phase_hidden"
+                                unavailable_error = "Not executed. This tool will be offered next turn; retry using its schema."
+                                await self._emit(phase, f"Restoring {call.tool} for the next turn; no action executed yet")
+                            else:
+                                unavailable_in_turn = True
+                                if call.tool not in registered_tools:
+                                    reason = "unknown_tool"
+                                    unavailable_error = "Unknown tool. Use an exact available tool name and its schema."
+                                elif intent == 'answer' and call.tool not in READ_ONLY_TOOLS:
+                                    reason = "read_only"
+                                    unavailable_error = "This is a read-only question. Inspect files and answer without edits or commands."
+                                elif call.tool in {"command_start", "run_linter"} and not self.dispatcher.allow_commands:
+                                    reason = "commands_disabled"
+                                    unavailable_error = "Command execution is disabled for this session. Report checks as unavailable."
+                                else:
+                                    reason = "missing_prerequisite"
+                                    unavailable_error = "Read the target with file_read before editing; artifacts require an existing artifact ID. Writes require an edit request."
+                                unavailable_error += " file_read reads files; repo_list lists paths; write_file creates files and parent directories when offered."
+                                await self._emit(phase, f"Tool request rejected ({reason}); sending available tools for correction")
                             result = ToolResult(operation_id=call.operation_id, status=OperationStatus.failed,
-                                                summary="tool unavailable", error=unavailable_error)
+                                                summary="tool unavailable", error=unavailable_error,
+                                                data={"reason": reason, "executed": False,
+                                                      "available_tools": list(dict.fromkeys((*offered_names, *sorted(recovered_tools.intersection(eligible)))))})
                             self._diagnose("tool.result", tool=call.tool, status=result.status.value,
                                            error=result.error)
                             response = self._tool_response(result, economy=economy,
@@ -491,13 +527,6 @@ class Engine:
                                 history.append({"role": "tool", "tool_call_id": event.call_id, "content": response})
                             else:
                                 history.append({"role": "user", "content": "Tool result: " + response})
-                            repair_attempts += 1
-                            if repair_attempts > 1:
-                                summary = "Model repeatedly requested unavailable tools"
-                                outcome = Outcome.blocked
-                                error_category = "unavailable_tool"
-                                finish_requested = True
-                                break
                             continue
                         if call.tool == "finish_request":
                             if not inspected:
@@ -645,6 +674,10 @@ class Engine:
                                 })
                         if result.status == OperationStatus.succeeded and call.tool in {"file_read", "repo_search", "diff_inspect", "command_start"}:
                             inspected = True
+                        if result.status == OperationStatus.succeeded and call.tool in {"trace_symbol", "infra_scan"} and result.data.get("scanned_files", 0):
+                            inspected = True
+                        if call.tool == "run_linter" and not result.data.get("passed", False):
+                            edit_complete = False
                         if result.status == OperationStatus.failed:
                             await self._emit(Phase.act, f"{call.tool} failed: {(result.error or '')[:200]}")
                             if economy:
@@ -669,6 +702,12 @@ class Engine:
                             history.append({"role": "user", "content": f"Tool result: {response}"})
                         if finish_requested:
                             break
+                    unavailable_turns = unavailable_turns + 1 if unavailable_in_turn else 0
+                    if unavailable_turns >= 3:
+                        summary = "Model could not select a permitted tool after three consecutive correction turns. No rejected calls were executed."
+                        outcome = Outcome.blocked
+                        error_category = "unavailable_tool"
+                        finish_requested = True
                     if finish_requested:
                         if self.pending_steering:
                             continue

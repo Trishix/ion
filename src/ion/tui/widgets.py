@@ -52,8 +52,12 @@ class Brand(Static):
 
 
 class Composer(TextArea):
+    suggestions: OptionList | None = None
+
     BINDINGS = [
         Binding('enter', 'submit', 'Send', priority=True),
+        Binding('tab', 'complete_command', 'Complete command', priority=True),
+        Binding('escape', 'dismiss_commands', 'Dismiss commands', priority=True),
         Binding('shift+enter', 'line_break', 'New line', priority=True),
         Binding('ctrl+j', 'line_break', 'New line', priority=True),
     ]
@@ -61,8 +65,44 @@ class Composer(TextArea):
     class Submitted(Message):
         pass
 
+    class CompleteCommand(Message):
+        pass
+
+    class DismissCommands(Message):
+        pass
+
+    @property
+    def suggesting(self) -> bool:
+        return self.suggestions is not None and self.suggestions.display
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in ('complete_command', 'dismiss_commands'):
+            return self.suggesting
+        return super().check_action(action, parameters)
+
     def action_submit(self) -> None:
-        self.post_message(self.Submitted())
+        if self.suggesting:
+            self.suggestions.action_select()
+        else:
+            self.post_message(self.Submitted())
+
+    def action_complete_command(self) -> None:
+        self.post_message(self.CompleteCommand())
+
+    def action_dismiss_commands(self) -> None:
+        self.post_message(self.DismissCommands())
+
+    def action_cursor_up(self, select: bool = False) -> None:
+        if self.suggesting and not select:
+            self.suggestions.action_cursor_up()
+        else:
+            super().action_cursor_up(select)
+
+    def action_cursor_down(self, select: bool = False) -> None:
+        if self.suggesting and not select:
+            self.suggestions.action_cursor_down()
+        else:
+            super().action_cursor_down(select)
 
     def action_line_break(self) -> None:
         self.insert('\n')

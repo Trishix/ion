@@ -1,8 +1,11 @@
 schema_version = 1
-default_profile = "openrouter-coding-free"
+# Evaluation fallback only; normal TUI launches start with no model selected.
+default_profile = "deepseek-direct"
+# The evaluator chooses the issuer of AI_API_KEY through /model in the TUI.
+evaluation_profiles = ["deepseek-direct", "qwen-direct"]
 
 [economy]
-enabled = true
+enabled = false
 max_requests = 12
 max_total_tokens = 24000
 inspect_output_tokens = 512

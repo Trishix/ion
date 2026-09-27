@@ -93,6 +93,7 @@ async def test_named_rewrite_prefetches_source_and_edits_in_one_model_call(tmp_p
         "content": "# Documentation\n\nKeep these facts.\n", "done": True,
     })]])
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True})})
     result = await Engine(config, provider, dispatcher).run(TaskSpec(text="rewrite the readme", repo_path=str(repo), profile_name=config.default_profile))
     assert len(provider.requests) == 1
     assert provider.requests[0].tool_choice == "write_file"
@@ -141,6 +142,7 @@ async def test_multifile_edit_can_reread_after_write_and_recovers_truncation(tmp
         turn("write_file", plan="Update b", relative_path="b.txt", read_id="r2", content="updated", done=True),
     ])
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True})})
     profile = resolve_profile(config, config.default_profile, "product").model_copy(update={"tool_protocol": protocol})
     result = await Engine(config, provider, dispatcher, profile_override=profile).run(
         TaskSpec(text="Fix both files", repo_path=str(repo), profile_name=config.default_profile))

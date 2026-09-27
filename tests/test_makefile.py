@@ -49,3 +49,41 @@ Path(os.environ["ION_TEST_CAPTURE"]).write_text(json.dumps({
     assert args[0] == ("sync" if target == "setup" else "run")
     assert Path(invocation["cache"]) == ion_root / ".uv-cache"
     assert not (workspace / ".venv").exists()
+
+
+@pytest.mark.parametrize('relocated', [False, True])
+def test_make_install_registers_checkout_as_editable_tool(tmp_path, relocated):
+    ion_root = Path(__file__).resolve().parents[1]
+    if relocated:
+        checkout = tmp_path / 'cloned ion'
+        (checkout / 'scripts').mkdir(parents=True)
+        shutil.copyfile(ion_root / 'Makefile', checkout / 'Makefile')
+        shutil.copyfile(ion_root / 'scripts/bootstrap.py', checkout / 'scripts/bootstrap.py')
+        ion_root = checkout.resolve()
+    workspace = tmp_path / 'target repository'
+    workspace.mkdir()
+    capture = tmp_path / 'calls.jsonl'
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    uv = bin_dir / 'uv'
+    uv.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+with Path(os.environ['ION_TEST_CAPTURE']).open('a') as stream:
+    stream.write(json.dumps({'cwd': os.getcwd(), 'args': sys.argv[1:]}) + '\\n')
+''')
+    uv.chmod(0o755)
+    env = {**os.environ, 'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
+           'ION_TEST_CAPTURE': str(capture)}
+    for name in ('UV', 'UV_CACHE_DIR', 'UV_PYTHON_INSTALL_DIR', 'MAKEFLAGS', 'MFLAGS'):
+        env.pop(name, None)
+    result = subprocess.run(['make', '-f', str(ion_root / 'Makefile'), 'install'],
+                            cwd=workspace, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert calls[0]['args'] == ['sync', '--project', str(ion_root), '--locked']
+    assert calls[1]['args'] == ['tool', 'install', '--editable', str(ion_root),
+                               '--python', str(ion_root / '.venv/bin/python')]
+    assert all(Path(call['cwd']) == workspace for call in calls)
+    assert not (workspace / 'Makefile').exists()
+    assert not (workspace / '.venv').exists()

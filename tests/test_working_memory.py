@@ -74,6 +74,7 @@ async def test_engine_stops_repeated_reads_without_spending_full_request_budget(
         for i in range(10)
     ])
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True})})
     result = await Engine(config, provider, dispatcher).run(TaskSpec(text="Fix app.py", repo_path=str(repo), profile_name="openrouter-qwen-free"))
     assert result.outcome == "blocked"
     assert "repeated tool cycle" in result.summary

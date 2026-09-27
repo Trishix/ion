@@ -41,14 +41,36 @@ class EconomyConfig(BaseModel):
         return self.max_tool_preview_chars
 
 
+class ToolsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    lint_command: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_lint_command(self):
+        if any(not arg.strip() or "\0" in arg for arg in self.lint_command):
+            raise ValueError("lint_command must contain nonempty argv strings without null bytes")
+        return self
+
+
 class AppConfig(BaseModel):
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal[1]
     default_profile: str
     evaluation_profile: str | None = None
+    evaluation_profiles: tuple[str, ...] = ()
     profiles: dict[str, dict]
     model_catalog: dict = Field(default_factory=dict)
     economy: EconomyConfig = Field(default_factory=EconomyConfig)
+
+    @model_validator(mode="after")
+    def validate_evaluation_choices(self):
+        for name in self.evaluation_profiles:
+            if name not in self.profiles:
+                raise ValueError(f"evaluation profile is missing: {name}")
+        if self.evaluation_profiles and (self.evaluation_profile or self.default_profile) not in self.evaluation_profiles:
+            raise ValueError("evaluation_profiles must include the evaluation default")
+        return self
 
 
 def load_config(path: Path, *, use_environment: bool = True) -> AppConfig:
@@ -84,7 +106,17 @@ def apply_environment(config: AppConfig, *, force_evaluation: bool = False) -> A
     model = os.environ.get("AI_MODEL", "").strip()
     requested = force_evaluation or evaluation_requested()
     evaluation = requested or bool(config.evaluation_profile)
-    if not (provider or endpoint or model or requested):
+    if evaluation:
+        # Only committed choices may be selected. Developer routing settings
+        # never alter their endpoints, models, limits, or evaluation credential.
+        selected = config.evaluation_profile or config.default_profile
+        profiles = dict(config.profiles)
+        for name in config.evaluation_profiles or (selected,):
+            profile = resolve_profile(config, name, "product")
+            profiles[name] = profile.model_copy(update={"api_key_env": "AI_API_KEY", "locked": True}).model_dump()
+        return config.model_copy(update={"profiles": profiles, "default_profile": selected,
+                                         "evaluation_profile": selected})
+    if not (provider or endpoint or model or evaluation):
         return config
 
     presets = {

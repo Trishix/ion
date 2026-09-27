@@ -92,6 +92,27 @@ Brand {
     text-style: bold;
 }
 
+#command-suggestions {
+    display: none;
+    height: auto;
+    max-height: 7;
+    margin-bottom: 1;
+    padding: 0;
+    background: #151a1d;
+    border: solid #324047;
+    scrollbar-size: 1 1;
+}
+
+#command-suggestions > .option-list--option-highlighted {
+    background: #253036;
+    color: #e5e9e8;
+    text-style: bold;
+}
+
+.suggesting #home {
+    display: none;
+}
+
 #composer {
     height: auto;
     width: 100%;

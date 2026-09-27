@@ -6,6 +6,10 @@ from datetime import datetime
 
 
 TOOL_LABELS = {
+    "trace_symbol": "Tracing symbol",
+    "infra_scan": "Scanning project architecture",
+    "web_search": "Searching the web",
+    "run_linter": "Checking lint diagnostics",
     'file_read': 'Reading file', 'repo_list': 'Listing files',
     'repo_search': 'Searching repository', 'edit_file': 'Editing file',
     'write_file': 'Writing file', 'patch_apply': 'Applying changes',

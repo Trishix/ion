@@ -14,13 +14,25 @@ from ion.providers.openai_compatible import OpenAICompatibleProvider
     ("qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     ("custom", "https://judge.example/v1"),
 ])
-async def test_universal_key_reaches_only_selected_endpoint(monkeypatch, provider, endpoint):
-    monkeypatch.setenv("AI_PROVIDER", provider)
-    monkeypatch.setenv("AI_BASE_URL", endpoint)
-    monkeypatch.setenv("AI_MODEL", "judge-model")
+async def test_universal_key_reaches_only_configured_evaluation_endpoint(tmp_path, monkeypatch, provider, endpoint):
+    config_path = tmp_path / "ion.toml"
+    config_path.write_text(f'''schema_version = 1
+default_profile = "committee"
+evaluation_profile = "committee"
+[profiles.committee]
+provider = "{provider}"
+base_url = "{endpoint}"
+model = "judge-model"
+locked = true
+context_window = 8192
+max_output_tokens = 1024
+''')
+    monkeypatch.setenv("AI_PROVIDER", "unrelated")
+    monkeypatch.setenv("AI_BASE_URL", "https://unrelated.example/v1")
+    monkeypatch.setenv("AI_MODEL", "substitute-model")
     monkeypatch.setenv("AI_API_KEY", "judge-key")
     monkeypatch.setenv("AI_EVALUATION", "1")
-    config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = load_config(config_path)
     profile = resolve_profile(config, config.evaluation_profile, "evaluation")
     credential, _ = resolve_credential(profile, "evaluation")
 
@@ -84,3 +96,72 @@ async def test_provider_http_errors_are_useful_but_do_not_include_body():
         events = [item async for item in OpenAICompatibleProvider(profile, "fixture-key", transport).generate(request)]
         assert events[0].error == expected
         assert "private provider details" not in str(events[0])
+
+
+@pytest.mark.asyncio
+async def test_key_only_submission_routes_direct_deepseek_credential(monkeypatch):
+    from ion.config import apply_environment
+
+    monkeypatch.setenv('AI_API_KEY', 'fixture-deepseek-key')
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'stale-openrouter-key')
+    config = load_config(Path(__file__).resolve().parents[1] / 'ion.toml', use_environment=False)
+    config = apply_environment(config, force_evaluation=True)
+    profile = resolve_profile(config, config.evaluation_profile, 'evaluation')
+    credential, _ = resolve_credential(profile, 'evaluation')
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert str(request.url) == 'https://api.deepseek.com/chat/completions'
+        assert request.headers['Authorization'] == 'Bearer fixture-deepseek-key'
+        body = json.loads(request.content)
+        assert body['model'] == 'deepseek-flash'
+        assert body['thinking'] == {'type': 'disabled'}
+        return httpx.Response(200, json={'choices': [{'message': {'content': 'Ready'}}]})
+
+    request = ModelRequest(messages=({'role': 'user', 'content': 'Hello'},), max_output_tokens=100, profile_digest='fixture')
+    events = [event async for event in OpenAICompatibleProvider(profile, credential, httpx.MockTransport(handle)).generate(request)]
+    assert len(requests) == 1
+    assert events[-1].kind == 'completed'
+    assert profile.locked
+
+
+@pytest.mark.asyncio
+async def test_direct_deepseek_tool_result_can_continue_without_reasoning_history(tmp_path):
+    from ion.artifacts import ArtifactStore
+    from ion.contracts import TaskSpec
+    from ion.engine import Engine
+    from ion.processes import CommandSupervisor
+    from ion.tools.registry import ToolDispatcher
+    from ion.workspace import Workspace
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    (repo / 'note.txt').write_text('The service handles scheduled jobs.\n')
+    config = load_config(Path(__file__).resolve().parents[1] / 'ion.toml', use_environment=False)
+    profile = resolve_profile(config, 'deepseek-direct', 'product')
+    requests = []
+
+    def handle(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body['thinking'] == {'type': 'disabled'}
+        if len(requests) == 1:
+            tool, arguments = 'file_read', {'relative_path': 'note.txt'}
+        else:
+            assert any(message['role'] == 'tool' and 'scheduled jobs' in message['content'] for message in body['messages'])
+            tool, arguments = 'finish_request', {'summary': 'The service handles scheduled jobs.'}
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'tool_calls', 'message': {
+            'content': None, 'tool_calls': [{'id': f'call-{len(requests)}', 'type': 'function',
+                                          'function': {'name': tool, 'arguments': json.dumps(arguments)}}],
+        }}]})
+
+    workspace = Workspace.capture(repo)
+    artifacts = ArtifactStore(tmp_path / 'artifacts')
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    provider = OpenAICompatibleProvider(profile, 'fixture-key', httpx.MockTransport(handle))
+    result = await Engine(config, provider, dispatcher).run(
+        TaskSpec(text='Explain the service', repo_path=str(repo), profile_name='deepseek-direct'))
+    assert len(requests) == 2
+    assert result.outcome == 'verified'
+    assert 'scheduled jobs' in result.summary

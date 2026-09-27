@@ -56,6 +56,10 @@ class OpenAICompatibleProvider:
             "max_tokens": request.max_output_tokens,
             "stream": False,
         }
+        if self.profile.provider == "deepseek":
+            # Thinking-mode tool turns require replaying reasoning_content.
+            # Ion retains tool evidence, not provider reasoning, in its history.
+            body["thinking"] = {"type": "disabled"}
         if self.profile.tool_protocol == "native" and request.tools:
             body["tools"] = list(request.tools)
             body["tool_choice"] = ({"type": "function", "function": {"name": request.tool_choice}}

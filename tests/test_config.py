@@ -29,16 +29,15 @@ def test_environment_routes_universal_key(monkeypatch, provider, host, model):
     assert resolve_credential(profile) == ("judge-key", "AI_API_KEY")
 
 
-def test_custom_endpoint_and_locked_evaluation(monkeypatch):
+def test_custom_endpoint_in_product_mode(monkeypatch):
     monkeypatch.setenv("AI_BASE_URL", "https://judge.example/v1")
     monkeypatch.setenv("AI_MODEL", "Qwen/judge-model")
-    monkeypatch.setenv("AI_EVALUATION", "1")
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
-    assert config.evaluation_profile
-    profile = resolve_profile(config, config.evaluation_profile, "evaluation")
+    assert config.evaluation_profile is None
+    profile = resolve_profile(config, config.default_profile, "product")
     assert profile.endpoint == "https://judge.example/v1"
     assert profile.model_id == "Qwen/judge-model"
-    assert profile.locked
+    assert not profile.locked
 
 
 @pytest.mark.parametrize("settings,match", [
@@ -68,3 +67,67 @@ def test_config_rejects_embedded_credential(tmp_path):
     path.write_text('schema_version=1\ndefault_profile="x"\n[profiles.x]\nprovider="groq"\nbase_url="https://api.example/v1"\nmodel="x"\napi_key="secret"\ncontext_window=8192\nmax_output_tokens=1024\n')
     with pytest.raises(ValueError):
         load_config(path)
+
+
+@pytest.mark.parametrize('evaluation_source', ['launch', 'flag', 'profile'])
+def test_evaluation_preserves_configured_routing(monkeypatch, evaluation_source):
+    from ion.config import AppConfig, apply_environment
+
+    profiles = {
+        'default': dict(provider='default-provider', base_url='https://default.example/v1',
+                        model='default-model', context_window=8192, max_output_tokens=1024),
+        'committee': dict(provider='committee', base_url='https://committee.example/v1',
+                          model='prescribed-model', context_window=32768,
+                          max_output_tokens=2048, locked=True),
+    }
+    config = AppConfig(schema_version=1, default_profile='default', profiles=profiles,
+                       evaluation_profile='committee' if evaluation_source == 'profile' else None)
+    monkeypatch.setenv('AI_PROVIDER', 'unrelated-provider')
+    monkeypatch.setenv('AI_BASE_URL', 'https://unrelated.example/v1')
+    monkeypatch.setenv('AI_MODEL', 'substitute-model')
+    monkeypatch.setenv('AI_API_KEY', 'evaluation-test-key')
+    if evaluation_source == 'flag':
+        monkeypatch.setenv('AI_EVALUATION', '1')
+    result = apply_environment(config, force_evaluation=evaluation_source == 'launch')
+    profile = resolve_profile(result, result.evaluation_profile, 'evaluation')
+    if evaluation_source == 'profile':
+        assert (profile.endpoint, profile.model_id, profile.context_window) == (
+            'https://committee.example/v1', 'prescribed-model', 32768)
+    else:
+        assert (profile.endpoint, profile.model_id, profile.context_window) == (
+            'https://default.example/v1', 'default-model', 8192)
+    assert profile.locked
+    assert profile.text_only
+    assert profile.api_key_env == 'AI_API_KEY'
+    assert resolve_credential(profile, 'evaluation') == ('evaluation-test-key', 'AI_API_KEY')
+
+
+def test_evaluation_choices_keep_committed_routes_and_universal_credential(monkeypatch):
+    from ion.config import apply_environment
+
+    config = load_config(Path(__file__).resolve().parents[1] / 'ion.toml', use_environment=False)
+    monkeypatch.setenv('AI_API_KEY', 'fixture-evaluation-key')
+    monkeypatch.setenv('DASHSCOPE_API_KEY', 'stale-provider-key')
+    monkeypatch.setenv('AI_MODEL', 'unapproved-model')
+    monkeypatch.setenv('AI_BASE_URL', 'https://unapproved.example/v1')
+    evaluated = apply_environment(config, force_evaluation=True)
+    assert evaluated.evaluation_profiles == ('deepseek-direct', 'qwen-direct')
+    for name, endpoint, model in (
+        ('deepseek-direct', 'https://api.deepseek.com', 'deepseek-flash'),
+        ('qwen-direct', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-plus'),
+    ):
+        profile = resolve_profile(evaluated, name, 'evaluation')
+        assert profile.endpoint == endpoint and profile.model_id == model
+        assert profile.locked and profile.api_key_env == 'AI_API_KEY'
+        assert resolve_credential(profile, 'evaluation') == ('fixture-evaluation-key', 'AI_API_KEY')
+        assert resolve_profile(config, name, 'product').locked is False
+
+
+@pytest.mark.parametrize('choices', [('missing',), ('qwen-direct',)])
+def test_invalid_evaluation_choices_fail_at_configuration_load(choices):
+    from ion.config import AppConfig
+
+    raw = load_config(Path(__file__).resolve().parents[1] / 'ion.toml', use_environment=False).model_dump()
+    raw['evaluation_profiles'] = choices
+    with pytest.raises(ValueError, match='evaluation'):
+        AppConfig.model_validate(raw)

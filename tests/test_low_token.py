@@ -40,6 +40,7 @@ async def test_economy_read_read_edit_finishes_without_repository_checks(tmp_pat
     ])
     diagnostics = DiagnosticLogger(tmp_path / "ion.jsonl", "task")
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": True})})
     result = await Engine(config, provider, dispatcher, diagnostics=diagnostics).run(
         TaskSpec(text="Rewrite the README with more detail", repo_path=str(repo), profile_name="openrouter-coding-free")
     )
