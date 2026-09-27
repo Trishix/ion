@@ -20,6 +20,7 @@ from ion.contracts import ModelProfile
 from ion.doctor import Doctor
 from ion.diagnostics import DiagnosticLogger, recent_diagnostics
 from ion.engine import Engine
+from ion.intent import is_issue_followup
 from ion.model_selection import select_model
 from ion.models.catalog import ModelCatalog
 from ion.processes import CommandSupervisor
@@ -51,6 +52,9 @@ class IonApp(App, inherit_bindings=False):
             raise ValueError('workspace root must be a directory')
         self.repo_path = str(root)
         self.displayed_workspace = self.repo_path
+        self._issue_url: str | None = None
+        self._issue_workspace: Path | None = None
+        self._issue_markdown: str | None = None
         self.mode = 'evaluation' if config.evaluation_profile else 'product'
         self.profile_name: str | None = config.evaluation_profile
         self.profile_override: ModelProfile | None = None
@@ -280,6 +284,7 @@ class IonApp(App, inherit_bindings=False):
             self._status('Stop the current task before starting a new one.')
             return
         self.default_screen.remove_class('session')
+        self._clear_issue_context()
         self.query_one('#activity', RichLog).clear()
         self._transcript.clear()
         self.query_one(Composer).text = ''
@@ -317,7 +322,16 @@ class IonApp(App, inherit_bindings=False):
         elif self._require_model():
             from ion.tools.github import find_issue_url
             issue_url = find_issue_url(text)
-            self.running_task = asyncio.create_task(self._run_github(issue_url, task_text=text) if issue_url else self._run_task(text))
+            if issue_url:
+                self.running_task = asyncio.create_task(self._run_github(issue_url, task_text=text))
+            elif is_issue_followup(text):
+                if self._issue_url:
+                    self.running_task = asyncio.create_task(self._run_github(self._issue_url, task_text=text, reuse=True))
+                else:
+                    self._status('Paste the GitHub issue URL or describe the bug and expected behavior. This task has no issue context yet.')
+            else:
+                self._clear_issue_context()
+                self.running_task = asyncio.create_task(self._run_task(text))
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == 'run':
@@ -578,18 +592,33 @@ class IonApp(App, inherit_bindings=False):
             self._status('Model selected for the next task.')
         self.push_screen(Picker('Models', items, 'Configured profiles + live catalog · /connect to add a key'), select)
 
-    async def _run_github(self, url: str, *, task_text: str | None = None) -> None:
+    def _clear_issue_context(self) -> None:
+        self._issue_url = None
+        self._issue_workspace = None
+        self._issue_markdown = None
+
+    async def _run_github(self, url: str, *, task_text: str | None = None, reuse: bool = False) -> None:
         from ion.tools.github import import_issue, prepare_issue_workspace
-        self._status('Cloning the GitHub issue repository…')
+        if not reuse or self._issue_url != url:
+            self._clear_issue_context()
+            self._issue_url = url
+        self._status('Preparing the GitHub issue workspace…')
         self.query_one('#cancel', Button).disabled = False
         self.query_one('#cancel', Button).display = True
         try:
-            checkout = await prepare_issue_workspace(url, self._data_root() / 'workspaces')
+            if self._issue_workspace is None:
+                self._status('Cloning the GitHub issue repository…')
+                self._issue_workspace = await prepare_issue_workspace(url, self._data_root() / 'workspaces')
+            checkout = self._issue_workspace
+            if not checkout.is_dir():
+                raise ValueError('The issue checkout is missing. Paste the issue URL again to create a new checkout.')
             self._session(f'GitHub issue: {url}')
             self._log(f'Issue checkout: {checkout}')
             self._repo_label(checkout)
-            self._status('Fetching GitHub issue and comments…')
-            markdown = await import_issue(url, checkout)
+            if self._issue_markdown is None:
+                self._status('Fetching GitHub issue and comments…')
+                self._issue_markdown = await import_issue(url, checkout)
+            markdown = self._issue_markdown
             task = f'Investigate and fix the issue at {url} in this repository. Understand the code, implement the fix, and run relevant tests.'
             if task_text and task_text != url:
                 task += f'\nUser request: {task_text}'

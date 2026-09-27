@@ -341,7 +341,8 @@ class Engine:
                 request = ModelRequest(messages=packet.messages, tools=schemas if profile.tool_protocol == "native" else (), max_output_tokens=packet.max_output_tokens, profile_digest=profile_digest(profile), tool_choice=directed_tool if profile.tool_protocol == "native" else None)
                 request_reserve = packet.estimated_input_tokens + packet.max_output_tokens
                 remaining_after = None if snapshot.remaining_tokens is None else snapshot.remaining_tokens - request_reserve
-                await self._emit(phase, f"Request {self.budget.used}/{self.budget.max_requests} · ~{packet.estimated_input_tokens} input · {packet.max_output_tokens} cap · {request_reserve} reserved · {snapshot.settled_tokens} settled · {remaining_after} remaining · {plan.protected_tokens} protected")
+                remaining_label = 'no task token limit' if remaining_after is None else f'{remaining_after} remaining'
+                await self._emit(phase, f"Request {self.budget.used}/{self.budget.max_requests} · ~{packet.estimated_input_tokens} input · {packet.max_output_tokens} cap · {request_reserve} reserved · {snapshot.settled_tokens} settled · {remaining_label} · {plan.protected_tokens} protected")
                 text_parts: list[str] = []
                 calls: list[ModelEvent] = []
                 error = None
@@ -366,7 +367,8 @@ class Engine:
                 if request_usage and {"prompt_tokens", "completion_tokens"} <= request_usage.keys():
                     self.budget.settle(request_usage["prompt_tokens"], request_usage["completion_tokens"], reservation.attempt)
                     settled = self.budget.snapshot()
-                    await self._emit(phase, f"Request {reservation.attempt} settled · {settled.settled_tokens} used · {settled.remaining_tokens} remaining")
+                    remaining_label = 'no task token limit' if settled.remaining_tokens is None else f'{settled.remaining_tokens} remaining'
+                    await self._emit(phase, f"Request {reservation.attempt} settled · {settled.settled_tokens} used · {remaining_label}")
                 if (finish_reason in {"length", "max_tokens"} or
                         (request_usage or {}).get("completion_tokens", 0) >= request.max_output_tokens) and not error:
                     error = "provider output truncated"

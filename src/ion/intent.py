@@ -5,6 +5,17 @@ import re
 from typing import Literal
 
 
+def is_issue_followup(text: str) -> bool:
+    """Recognize bare references that need an issue from the current session."""
+    text = re.sub(r'\s+', ' ', text.strip()).rstrip('.!?').lower()
+    text = re.sub(r'^(?:please\s+)+', '', text)
+    return bool(re.fullmatch(
+        r'(?:continue|retry|try again|(?:continue|retry) (?:it|the issue)|'
+        r'(?:solve|fix|resolve) (?:it|this|that|them|(?:(?:the|this|that|these|those) )?(?:issues?|bugs?|problems?)))',
+        text,
+    ))
+
+
 def task_intent(text: str) -> Literal['answer', 'edit', 'task']:
     text = text.strip()
     text = re.sub(r'^(?:(?:(?:can|could|would|will)\s+you|please)\s+)+', '', text, flags=re.I)

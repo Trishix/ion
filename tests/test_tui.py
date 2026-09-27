@@ -636,3 +636,93 @@ async def test_evaluation_issue_edits_and_verifies_checkout_with_universal_key(a
         await evaluation_app._command('/repo')
         assert str(issue_checkout) in str(evaluation_app.query_one('#status', Static).render())
         assert evaluation_app.repo_path == app.repo_path
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('text', ['solve the issue', 'Please fix it', 'solve them'])
+async def test_issue_reference_without_context_requests_details_before_network(app, monkeypatch, text):
+    app.profile_name = 'deepseek-direct'
+    async def unexpected_run(*args, **kwargs):
+        pytest.fail('An unresolved issue reference must not spend model requests')
+    monkeypatch.setattr(app, '_run_task', unexpected_run)
+    async with app.run_test() as pilot:
+        app.query_one(Composer).text = text
+        await pilot.press('enter')
+        await pilot.pause()
+        assert app.running_task is None
+        assert 'issue URL' in str(app.query_one('#status', Static).render())
+        assert app.query_one(Composer).text == text
+
+
+@pytest.mark.asyncio
+async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, monkeypatch, tmp_path):
+    app.profile_name = 'deepseek-direct'
+    checkout = tmp_path / 'issue-repo'
+    checkout.mkdir()
+    clones, fetches, runs = [], [], []
+    async def prepare(url, root):
+        clones.append(url)
+        return checkout
+    async def fetch(url, root):
+        fetches.append(url)
+        return '# Issue details\nFix the parser crash.'
+    async def run(text, **kwargs):
+        runs.append((text, kwargs))
+        app.query_one(Composer).text = ''
+    monkeypatch.setattr('ion.tools.github.prepare_issue_workspace', prepare)
+    monkeypatch.setattr('ion.tools.github.import_issue', fetch)
+    monkeypatch.setattr(app, '_run_task', run)
+    async with app.run_test() as pilot:
+        for message in ['https://github.com/acme/repo/issues/1', 'solve the issue', 'retry']:
+            app.query_one(Composer).text = message
+            await pilot.press('enter')
+            await pilot.pause()
+            await app.running_task
+        assert len(clones) == len(fetches) == 1
+        assert len(runs) == 3
+        for text, kwargs in runs:
+            assert '/issues/1' in text
+            assert kwargs['workspace_root'] == checkout
+            assert 'parser crash' in kwargs['context_markdown']
+        assert 'solve the issue' in runs[1][0]
+        app.action_new()
+        app.query_one(Composer).text = 'solve the issue'
+        await pilot.press('enter')
+        await pilot.pause()
+        assert len(runs) == 3
+        assert 'issue URL' in str(app.query_one('#status', Static).render())
+
+
+@pytest.mark.asyncio
+async def test_retry_failed_issue_fetch_reuses_clone_but_regular_task_clears_context(app, monkeypatch, tmp_path):
+    app.profile_name = 'deepseek-direct'
+    checkout = tmp_path / 'retry-checkout'
+    checkout.mkdir()
+    clones, fetches, runs = [], [], []
+    async def prepare(url, root):
+        clones.append(url)
+        return checkout
+    async def fetch(url, root):
+        fetches.append(url)
+        if len(fetches) == 1:
+            raise ValueError('Temporary GitHub failure')
+        return '# Retry evidence'
+    async def run(text, **kwargs):
+        runs.append((text, kwargs))
+    monkeypatch.setattr('ion.tools.github.prepare_issue_workspace', prepare)
+    monkeypatch.setattr('ion.tools.github.import_issue', fetch)
+    monkeypatch.setattr(app, '_run_task', run)
+    async with app.run_test() as pilot:
+        for text in ['https://github.com/acme/repo/issues/1', 'retry', 'Explain README.md']:
+            app.query_one(Composer).text = text
+            await pilot.press('enter')
+            await pilot.pause()
+            await app.running_task
+        assert len(clones) == 1 and len(fetches) == 2
+        assert runs[0][1]['workspace_root'] == checkout
+        assert runs[1] == ('Explain README.md', {})
+        app.query_one(Composer).text = 'solve the issue'
+        await pilot.press('enter')
+        await pilot.pause()
+        assert len(runs) == 2
+        assert 'issue URL' in str(app.query_one('#status', Static).render())
