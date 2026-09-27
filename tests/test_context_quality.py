@@ -87,6 +87,10 @@ def test_checkpoint_retains_references_and_covers_old_turns():
                *_read("latest", "B" * 700)]
     history[1]["tool_calls"][0]["function"]["arguments"] = '{"relative_path":"legacy.py"}'
     history[2]["content"] = history[2]["content"].replace("parser.py", "legacy.py")
+    history[1]["sequence"] = 1
+    history[2]["sequence"] = 2
+    history[3]["sequence"] = 3
+    history[4]["sequence"] = 4
     checkpoint = ContextCheckpoint(checkpoint_id="cp-1", session_id="session", through_seq=2,
                                    constraints_digest="digest", summary="Parser inspected",
                                    pinned_evidence_refs=("artifact-1",), model_profile_digest="model")
@@ -96,8 +100,8 @@ def test_checkpoint_retains_references_and_covers_old_turns():
     assert packet.manifest.checkpoint_id == "cp-1"
     assert packet.manifest.pinned_evidence_refs == ("artifact-1",)
     assert "artifact-1" in packet.messages[0]["content"]
-    assert "old" in packet.manifest.omitted_turn_ids
-    assert packet.manifest.omission_reasons["old"] == "checkpoint_covered"
+    assert "1" in packet.manifest.omitted_turn_ids
+    assert packet.manifest.omission_reasons["1"] == "checkpoint_covered"
     assert packet.messages[-1]["tool_call_id"] == "latest"
 
 
@@ -161,3 +165,71 @@ def test_pinned_task_with_durable_id_is_not_sent_twice():
     assert len(packet.messages) == 1
     assert "task-turn" in packet.manifest.included_turn_ids
     assert not packet.manifest.omitted_turn_ids
+
+
+def test_unmarked_user_constraint_survives_exchange_compaction():
+    task = _task()
+    history = [{"role": "user", "content": task.text}, *_read("old", "A" * 2000),
+               {"role": "user", "content": "Keep the CLI stable"}, *_read("latest", "B" * 700)]
+    history[1]["tool_calls"][0]["function"]["arguments"] = '{"relative_path":"legacy.py"}'
+
+    packet = ContextManager().build(task, _profile(), Phase.act, history, "",
+                                    tool_names=("file_read", "finish_request"), input_budget_tokens=1200)
+
+    assert "Keep the CLI stable" in json.dumps(packet.messages)
+    assert "old" in packet.manifest.omitted_turn_ids
+    assert packet.messages[-1]["tool_call_id"] == "latest"
+
+
+def test_structured_pending_action_preserves_previous_complete_result():
+    task = _task()
+    profile = _profile().model_copy(update={"tool_protocol": "structured_json"})
+    history = [{"role": "user", "content": task.text},
+               {"role": "assistant", "content": json.dumps({"action": "tool", "tool": "file_read",
+                "arguments": {"relative_path": "parser.py"}}), "turn_id": "read-action"},
+               {"role": "user", "content": "Tool result: " + json.dumps({"read_id": "r1", "text": "B" * 1800}),
+                "turn_id": "read-result"},
+               {"role": "assistant", "content": json.dumps({"action": "tool", "tool": "edit_file",
+                "arguments": {"read_id": "r1", "old_text": "before", "new_text": "after"}}),
+                "turn_id": "pending-edit"}]
+
+    with pytest.raises(ContextOverflowError) as exc:
+        ContextManager().build(task, profile, Phase.act, history, "",
+                               tool_names=("file_read", "edit_file", "finish_request"),
+                               input_budget_tokens=1300)
+
+    assert exc.value.dispatched is False
+    assert {"read-action", "read-result", "pending-edit"} <= set(exc.value.manifest.included_turn_ids)
+    assert not exc.value.manifest.omitted_turn_ids
+
+
+def test_checkpoint_without_durable_sequences_does_not_claim_coverage():
+    task = _task()
+    history = [{"role": "user", "content": task.text}, *_read("old", "A" * 1800),
+               *_read("latest", "B" * 700)]
+    history[1]["tool_calls"][0]["function"]["arguments"] = '{"relative_path":"legacy.py"}'
+    checkpoint = ContextCheckpoint(checkpoint_id="cp-1", session_id="session", through_seq=100,
+                                   constraints_digest="digest", summary="Earlier work inspected",
+                                   model_profile_digest="model")
+
+    packet = ContextManager().build(task, _profile(), Phase.act, history, "", checkpoint=checkpoint,
+                                    tool_names=("file_read", "finish_request"), input_budget_tokens=1250)
+
+    assert "old" in packet.manifest.omitted_turn_ids
+    assert packet.manifest.omission_reasons["old"] == "old_completed_turn"
+
+
+def test_small_repository_memory_drops_before_completed_turns_and_keeps_task_pointer():
+    task = _task()
+    history = [{"role": "user", "content": task.text}, *_read("old", "A" * 800),
+               *_read("latest", "B" * 700)]
+    history[1]["tool_calls"][0]["function"]["arguments"] = '{"relative_path":"legacy.py"}'
+    pointer = '{"path":"parser.py","status":"read"}'
+    packet = ContextManager().build(task, _profile(), Phase.act, history, "",
+                                    memory="repository fact " * 12, task_pointers=pointer,
+                                    tool_names=("file_read", "finish_request"), input_budget_tokens=1430)
+
+    assert packet.manifest.omission_reasons["memory"] == "optional_repository_memory"
+    assert "repository fact" not in json.dumps(packet.messages)
+    assert "parser.py" in json.dumps(packet.messages)
+    assert "old" not in packet.manifest.omitted_turn_ids
