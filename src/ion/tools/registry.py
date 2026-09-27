@@ -152,6 +152,11 @@ class ToolDispatcher:
     def observed_page_count(self) -> int:
         return len({(path, sha256, offset) for path, sha256, offset, _ in self.reads.values()})
 
+    def limit_read_visibility(self, read_id: str, max_chars: int) -> None:
+        """Grant edit authority only for source text actually returned to the model."""
+        path, sha256, offset, text = self.reads[read_id]
+        self.reads[read_id] = (path, sha256, offset, text[:max_chars])
+
     def inspection_snapshot(self, max_chars: int = 9000) -> str:
         """Return bounded observed source for a fresh edit-only model turn."""
         blocks: list[str] = []

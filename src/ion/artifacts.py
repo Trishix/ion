@@ -64,4 +64,5 @@ class ArtifactStore:
         return state == b"1"
 
     def has_artifacts(self) -> bool:
-        return any(path.is_file() and not path.name.endswith(".tmp") for path in self.root.iterdir())
+        return any(path.is_file() and (self._metadata_root / path.name).is_file()
+                   for path in self.root.iterdir())

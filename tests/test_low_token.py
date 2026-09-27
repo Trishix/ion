@@ -47,10 +47,8 @@ async def test_economy_read_read_edit_finishes_without_repository_checks(tmp_pat
     assert {"file_read", "edit_file", "write_file", "finish_request"} <= set(third_tools)
     assert "repo_search" not in third_tools
     third_messages = provider.requests[2].messages
-    assert len(third_messages) == 2
-    assert third_messages[1]["role"] == "user"
-    assert "read_id=r1 path=README.md offset=0" in third_messages[1]["content"]
-    assert not any(message.get("tool_calls") for message in third_messages)
+    assert any(message.get("tool_call_id") == "r2" for message in third_messages)
+    assert "Short introduction." in json.dumps(third_messages)
     assert result.changed_files == ("README.md",)
     assert result.outcome == "unverified"
     assert len(provider.requests) == 3

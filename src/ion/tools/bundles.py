@@ -17,6 +17,12 @@ def select_tool_bundle(
         names = ["diff_summary", "diff_inspect"]
         if allow_commands:
             names.append("command_start")
+        if edit_intent:
+            names.extend(("file_read", "file_outline", "write_file"))
+            if observed_page_count > 0:
+                names.append("edit_file")
+                if target_hashes_available:
+                    names.append("patch_apply")
     elif phase == Phase.finalize:
         names = ["diff_summary"]
     elif phase == Phase.plan:
