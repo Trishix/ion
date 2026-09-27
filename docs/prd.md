@@ -1,6 +1,6 @@
 # Ion product requirements
 
-Status: approved design direction, unimplemented product. Last updated: 2026-09-26.
+Status: approved design direction; foreground core implemented, full P0 product pending. Last updated: 2026-09-26.
 
 ## Purpose and users
 

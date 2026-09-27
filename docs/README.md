@@ -1,8 +1,8 @@
 # Ion product documentation
 
-Ion is a planned autonomous coding-agent harness for the AI Harness Hackathon 2026 and a continuing local developer product.
+Ion is a local coding-agent harness for the AI Harness Hackathon 2026 and a continuing developer product.
 
-**Current status:** documentation only. The engine, TUI, Makefile, tests, and model integrations described here are not implemented. No benchmark score or submission-readiness claim is made.
+**Current status:** a foreground coding core, Textual TUI, Makefile, provider profiles, and offline tests are implemented. Durable sessions, source-linked repository memory, broad verification, and an official evaluation profile remain planned. No benchmark score or submission-readiness claim is made.
 
 ## Read in this order
 
@@ -69,4 +69,4 @@ Documentation validation completed on 2026-09-26:
 - Independent architecture review identified four gaps; workspace-wide orphan recovery, patch attribution, compaction-safe amendments, and tagged verification evidence were corrected and corresponding contract checks passed.
 - A targeted credential-pattern scan found no matches; this is not a comprehensive future release secret audit.
 
-Validation tooling ran from a temporary directory outside this project; no product dependencies, Git repository, or runtime code were created. Runtime scenario results remain pending implementation. Do not treat any future test command in implementation-plan as an executed test.
+The documentation validation above predates the runtime implementation. See the root README for the current build and its checks; future test commands in implementation-plan are not evidence that those scenarios passed.
