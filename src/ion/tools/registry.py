@@ -282,8 +282,9 @@ class ToolDispatcher:
             elif name == "artifact_read":
                 raw = self.artifacts.read(args["artifact_id"])
                 decoded = raw.decode("utf-8", "replace")
+                complete = self.artifacts.is_complete(args["artifact_id"])
                 data = {**self._page(decoded, args.get("offset", 0), args.get("limit", 4000)),
-                        "lossy": decoded.encode("utf-8") != raw}
+                        "complete": complete, "lossy": not complete or decoded.encode("utf-8") != raw}
             elif name == "artifact_search":
                 data = self._artifact_search(args["artifact_id"], args["query"],
                                              args.get("cursor", 0), args.get("max_matches", 20))
@@ -341,6 +342,7 @@ class ToolDispatcher:
             raise ValueError("query must contain text")
         raw = self.artifacts.read(artifact_id)
         text = raw.decode("utf-8", "replace")
+        complete = self.artifacts.is_complete(artifact_id)
         if cursor > len(text):
             raise ValueError("cursor exceeds artifact length")
         matches = []
@@ -355,7 +357,7 @@ class ToolDispatcher:
             position = found + len(query)
         more = text.find(query, position) >= 0
         return {"matches": matches, "next_cursor": position if more else None,
-                "truncated": more, "lossy": text.encode("utf-8") != raw}
+                "truncated": more, "complete": complete, "lossy": not complete or text.encode("utf-8") != raw}
 
     def _diff_summary(self, relative_paths: tuple[str, ...] | list[str]) -> dict[str, Any]:
         selected = set()
@@ -442,16 +444,20 @@ class ToolDispatcher:
             raise ValueError("edits must be a nonempty array")
         prepared = []
         seen = set()
+        observed = {(path, sha256) for path, sha256, _, _ in self.reads.values()}
         for edit in edits:
             if set(edit) != {"path", "expected_hash", "old_text", "new_text"}:
                 raise ValueError("invalid patch edit fields")
             relative = edit["path"]
             if private_path(relative):
                 raise ValueError("private file edits are unavailable")
+            path = self.workspace.resolve(relative)
+            relative = path.relative_to(self.workspace.root).as_posix()
             if relative in seen:
                 raise ValueError("duplicate patch path")
             seen.add(relative)
-            path = self.workspace.resolve(relative)
+            if (relative, edit["expected_hash"]) not in observed:
+                raise ValueError("patch requires an observed read of each target hash")
             raw = path.read_bytes()
             if digest(raw) != edit["expected_hash"]:
                 raise ValueError("stale patch input")

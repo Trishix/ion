@@ -78,6 +78,24 @@ async def test_artifact_read_pages_report_truncation_and_decode_loss(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_incomplete_artifact_stays_lossy_after_store_reopens(tmp_path):
+    _, artifacts, dispatcher = dispatcher_for(tmp_path)
+    artifact = artifacts.put(b"first line\nsecond line\n", "command_output", complete=False)
+    reopened = ArtifactStore(artifacts.root)
+    reopened_dispatcher = ToolDispatcher(dispatcher.workspace, reopened, CommandSupervisor(dispatcher.workspace, reopened))
+    page = await call(reopened_dispatcher, "artifact_read", artifact_id=artifact.artifact_id, limit=10)
+    search = await call(reopened_dispatcher, "artifact_search", artifact_id=artifact.artifact_id, query="second")
+    assert page.status == "succeeded"
+    assert page.data["complete"] is False
+    assert page.lossy is True
+    assert search.status == "succeeded"
+    assert search.data["complete"] is False
+    assert search.lossy is True
+    assert search.data["matches"][0]["offset"] == 11
+    assert reopened.has_artifacts() is True
+
+
+@pytest.mark.asyncio
 async def test_diff_summary_shows_hashes_and_sizes_without_patch(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -87,6 +105,8 @@ async def test_diff_summary_shows_hashes_and_sizes_without_patch(tmp_path):
     workspace = Workspace.capture(repo)
     dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
     old_hash = digest(b"before\n")
+    read = await call(dispatcher, "file_read", relative_path="app.py")
+    assert read.data["sha256"] == old_hash
     edited = await call(dispatcher, "patch_apply", edits=[{
         "path": "app.py", "expected_hash": old_hash, "old_text": "before", "new_text": "after"
     }])
@@ -109,6 +129,7 @@ async def test_diff_inspect_retains_patch_without_echoing_body(tmp_path):
     artifacts = ArtifactStore(tmp_path / "artifacts")
     workspace = Workspace.capture(repo)
     dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    assert (await call(dispatcher, "file_read", relative_path="app.py")).status == "succeeded"
     changed = await call(dispatcher, "patch_apply", edits=[{
         "path": "app.py", "expected_hash": digest(b"before\n"),
         "old_text": "before", "new_text": "after",
@@ -137,6 +158,29 @@ async def test_patch_apply_rejects_ninth_edit_and_oversized_batch_without_writes
     too_large = await call(dispatcher, "patch_apply", edits=[{**edits[0], "new_text": "x" * (MAX_PATCH_REPLACEMENT_BYTES + 1)}])
     assert too_large.status == "failed"
     assert (repo / "0.txt").read_text() == "old"
+
+
+@pytest.mark.asyncio
+async def test_patch_apply_requires_observed_read_for_every_normalized_target(tmp_path):
+    repo, _, dispatcher = dispatcher_for(tmp_path)
+    for name in ("a.py", "b.py"):
+        (repo / name).write_text("before\n")
+    expected_hash = digest(b"before\n")
+    first = {"path": "./a.py", "expected_hash": expected_hash,
+             "old_text": "before", "new_text": "after"}
+    second = {**first, "path": "b.py"}
+    unread = await call(dispatcher, "patch_apply", edits=[first])
+    assert unread.status == "failed"
+    assert "read" in unread.error.lower()
+    assert (repo / "a.py").read_text() == "before\n"
+    await call(dispatcher, "file_read", relative_path="a.py")
+    partial = await call(dispatcher, "patch_apply", edits=[first, second])
+    assert partial.status == "failed"
+    assert all((repo / name).read_text() == "before\n" for name in ("a.py", "b.py"))
+    await call(dispatcher, "file_read", relative_path="b.py")
+    applied = await call(dispatcher, "patch_apply", edits=[first, second])
+    assert applied.status == "succeeded"
+    assert all((repo / name).read_text() == "after\n" for name in ("a.py", "b.py"))
 
 
 @pytest.mark.asyncio
