@@ -132,3 +132,20 @@ async def test_cancelled_clone_stops_process_and_removes_partial_checkout(tmp_pa
         await task
     assert processes[0].returncode is not None
     assert list((tmp_path / 'checkouts').iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_clone_reports_progress_while_process_is_running(tmp_path, monkeypatch):
+    import sys
+    from ion.tools.github import prepare_issue_workspace
+
+    original_exec = asyncio.create_subprocess_exec
+    reported = []
+    async def progress_clone(*args, **kwargs):
+        assert '--progress' in args and '--quiet' not in args
+        return await original_exec(sys.executable, '-c',
+            'import sys,time;sys.stderr.write("Receiving objects: 50%\\r");sys.stderr.flush();time.sleep(.1);sys.stderr.write("Receiving objects: 100%\\n")', **kwargs)
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', progress_clone)
+    await prepare_issue_workspace('https://github.com/acme/repo/issues/1', tmp_path / 'checkouts', on_progress=reported.append)
+    assert any('50%' in line for line in reported)
+    assert any('100%' in line for line in reported)

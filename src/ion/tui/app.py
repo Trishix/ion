@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from time import monotonic
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class IonApp(App, inherit_bindings=False):
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
         Binding('ctrl+c', 'shutdown', 'Exit', priority=True),
+        Binding('escape', 'cancel', 'Stop task'),
     ]
 
     def __init__(self, config: AppConfig, workspace_root: str | Path | None = None) -> None:
@@ -319,6 +321,8 @@ class IonApp(App, inherit_bindings=False):
                 await self.engine.steer(text)
                 self.query_one(Composer).text = ''
                 self._status('Steering queued for the next turn.')
+            else:
+                self._status('Still preparing the repository or model connection. Your text is kept; use Esc or /stop to cancel.')
         elif self._require_model():
             from ion.tools.github import find_issue_url
             issue_url = find_issue_url(text)
@@ -602,13 +606,31 @@ class IonApp(App, inherit_bindings=False):
         if not reuse or self._issue_url != url:
             self._clear_issue_context()
             self._issue_url = url
-        self._status('Preparing the GitHub issue workspace…')
+        self._session(f'GitHub issue: {url}')
+        self.query_one(Composer).text = ''
+        self.query_one('#run', Button).label = 'preparing…'
+        self._log(f'Preparing issue: {url}')
+        started = monotonic()
+        stage = 'Preparing the GitHub issue workspace'
+
+        def refresh_preparation():
+            self._status(f'{stage} · {int(monotonic() - started)}s · Esc to cancel')
+
+        def progress(message: str):
+            nonlocal stage
+            stage = message
+            self.query_one('#context-info', Static).update(message)
+            refresh_preparation()
+
+        progress(stage)
+        timer = self.set_interval(1, refresh_preparation)
         self.query_one('#cancel', Button).disabled = False
         self.query_one('#cancel', Button).display = True
         try:
             if self._issue_workspace is None:
-                self._status('Cloning the GitHub issue repository…')
-                self._issue_workspace = await prepare_issue_workspace(url, self._data_root() / 'workspaces')
+                progress('Cloning the GitHub issue repository')
+                self._log('Cloning repository; download progress appears in the status and context panel.')
+                self._issue_workspace = await prepare_issue_workspace(url, self._data_root() / 'workspaces', on_progress=progress)
             checkout = self._issue_workspace
             if not checkout.is_dir():
                 raise ValueError('The issue checkout is missing. Paste the issue URL again to create a new checkout.')
@@ -616,12 +638,13 @@ class IonApp(App, inherit_bindings=False):
             self._log(f'Issue checkout: {checkout}')
             self._repo_label(checkout)
             if self._issue_markdown is None:
-                self._status('Fetching GitHub issue and comments…')
+                progress('Fetching GitHub issue and comments')
                 self._issue_markdown = await import_issue(url, checkout)
             markdown = self._issue_markdown
             task = f'Investigate and fix the issue at {url} in this repository. Understand the code, implement the fix, and run relevant tests.'
             if task_text and task_text != url:
                 task += f'\nUser request: {task_text}'
+            timer.stop()
             await self._run_task(task, context_markdown=markdown, workspace_root=checkout)
         except asyncio.CancelledError:
             self._status('GitHub import cancelled.')
@@ -630,6 +653,8 @@ class IonApp(App, inherit_bindings=False):
         except (ValueError, OSError) as exc:
             self._status(f'Cannot import GitHub issue: {exc}')
         finally:
+            timer.stop()
+            self.query_one('#run', Button).label = 'send ↵'
             self.query_one('#cancel', Button).disabled = True
             self.query_one('#cancel', Button).display = False
 
@@ -643,6 +668,7 @@ class IonApp(App, inherit_bindings=False):
             self._status(f"Set {key_name} in this terminal before starting a live task.")
             return
         self.catalog = self.catalog or self._new_catalog(credential)
+        self._status('Checking the selected model connection…')
         catalog_result = await self.catalog.list(profile)
         if catalog_result.status in {'authentication_failed', 'access_denied'}:
             hint = 'Use /model to select the provider matching AI_API_KEY.' if self.mode == 'evaluation' else 'Use /connect to replace the key.'
@@ -695,7 +721,10 @@ class IonApp(App, inherit_bindings=False):
             self.query_one("#run", Button).label = "steer ↵"
             self.query_one("#cancel", Button).disabled = False
             self._session(text)
-            self.query_one(Composer).text = ''
+            # Issue submission already cleared the input before cloning. Keep
+            # any new draft the user typed while repository preparation ran.
+            if context_markdown is None:
+                self.query_one(Composer).text = ''
             self.query_one('#cancel', Button).display = True
             self._log(Panel(Text(text), title='TASK', border_style='#36515a'))
             self._log(Text(f'{profile.provider} / {profile.model_id}', style='#82b7b5'))

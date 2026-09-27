@@ -33,7 +33,7 @@ def find_issue_url(text: str) -> str | None:
     return None
 
 
-async def prepare_issue_workspace(url: str, checkouts: Path) -> Path:
+async def prepare_issue_workspace(url: str, checkouts: Path, *, on_progress=None) -> Path:
     """Create a fresh checkout without touching the launch repository."""
     owner, repo, number = issue_identity(url)
     checkouts.mkdir(parents=True, exist_ok=True)
@@ -45,12 +45,26 @@ async def prepare_issue_workspace(url: str, checkouts: Path) -> Path:
     try:
         process = await asyncio.create_subprocess_exec(
             'git', '-c', f'core.hooksPath={os.devnull}', '-c', 'credential.helper=',
-            'clone', '--quiet', '--depth', '1', '--', f'https://github.com/{owner}/{repo}.git', str(destination),
+            'clone', '--progress', '--depth', '1', '--', f'https://github.com/{owner}/{repo}.git', str(destination),
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL, env=env, start_new_session=True,
+            stderr=asyncio.subprocess.PIPE, env=env, start_new_session=True,
         )
+
+        async def report_progress():
+            pending = ''
+            while chunk := await process.stderr.read(4096):
+                lines = re.split(r'[\r\n]', pending + chunk.decode('utf-8', 'replace'))
+                pending = lines.pop()[-4096:]
+                if on_progress:
+                    for line in lines:
+                        line = re.sub(r'[\x00-\x1f\x7f]', '', line).strip()
+                        if line:
+                            on_progress(line[:240])
+            if pending.strip() and on_progress:
+                on_progress(re.sub(r'[\x00-\x1f\x7f]', '', pending).strip()[:240])
+
         async with asyncio.timeout(180):
-            code = await process.wait()
+            _, code = await asyncio.gather(report_progress(), process.wait())
         if code:
             raise ValueError(f'Cannot clone {owner}/{repo}. Check network access and that the repository is public.')
         return destination

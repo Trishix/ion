@@ -346,6 +346,7 @@ async def test_github_context_retained_and_available_in_initial_request(app, mon
     provider = ScriptedProvider([[ModelEvent(kind='error', error='provider quota exhausted')]])
     markdown = '# Issue\n' + 'Evidence ' * 900
     async def fetch_issue(*args):
+        app.query_one(Composer).text = 'Draft typed while preparing'
         return markdown
     monkeypatch.setenv('OPENROUTER_API_KEY', 'fixture-key')
     monkeypatch.setattr('ion.tui.app.OpenAICompatibleProvider', lambda *args: provider)
@@ -360,6 +361,7 @@ async def test_github_context_retained_and_available_in_initial_request(app, mon
         prompt = str(request.messages)
         assert 'Investigate and fix the issue' in prompt
         assert 'unrelated draft' not in prompt
+        assert app.query_one(Composer).text == 'Draft typed while preparing'
         assert markdown not in prompt
         artifact_files = [path for path in (tmp_path / 'ion-data/artifacts').glob('*/*') if path.is_file()]
         assert any(path.read_text() == markdown for path in artifact_files)
@@ -532,7 +534,7 @@ async def test_evaluation_picker_cannot_switch_during_task(app):
 def issue_checkout(app, monkeypatch, tmp_path):
     checkout = tmp_path / 'cloned-issue-repo'
     checkout.mkdir()
-    async def prepare(url, root):
+    async def prepare(url, root, **kwargs):
         return checkout
     monkeypatch.setattr('ion.tools.github.prepare_issue_workspace', prepare)
     return checkout
@@ -545,7 +547,7 @@ async def test_pasted_issue_clones_before_import_and_runs_in_checkout(app, monke
     checkout = tmp_path / 'issue-checkout'
     checkout.mkdir()
     order = []
-    async def prepare(url, root):
+    async def prepare(url, root, **kwargs):
         order.append('clone')
         return checkout
     async def fetch(url, root):
@@ -660,7 +662,7 @@ async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, mo
     checkout = tmp_path / 'issue-repo'
     checkout.mkdir()
     clones, fetches, runs = [], [], []
-    async def prepare(url, root):
+    async def prepare(url, root, **kwargs):
         clones.append(url)
         return checkout
     async def fetch(url, root):
@@ -699,7 +701,7 @@ async def test_retry_failed_issue_fetch_reuses_clone_but_regular_task_clears_con
     checkout = tmp_path / 'retry-checkout'
     checkout.mkdir()
     clones, fetches, runs = [], [], []
-    async def prepare(url, root):
+    async def prepare(url, root, **kwargs):
         clones.append(url)
         return checkout
     async def fetch(url, root):
@@ -726,3 +728,37 @@ async def test_retry_failed_issue_fetch_reuses_clone_but_regular_task_clears_con
         await pilot.pause()
         assert len(runs) == 2
         assert 'issue URL' in str(app.query_one('#status', Static).render())
+
+
+@pytest.mark.asyncio
+async def test_pasted_issue_shows_preparation_and_enter_feedback_and_escape_cancels(app, monkeypatch):
+    app.profile_name = 'deepseek-direct'
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+    async def prepare(url, root, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+    monkeypatch.setattr('ion.tools.github.prepare_issue_workspace', prepare)
+    async with app.run_test() as pilot:
+        from textual.events import Paste
+        app.post_message(Paste('https://github.com/acme/repo/issues/1'))
+        await pilot.pause()
+        await pilot.press('enter')
+        await asyncio.wait_for(entered.wait(), 2)
+        assert app.screen.has_class('session')
+        assert app.query_one(Composer).text == ''
+        assert app.query_one('#cancel', Button).display
+        assert 'Cloning' in str(app.query_one('#status', Static).render())
+        app.query_one(Composer).text = 'Is it running?'
+        await pilot.press('enter')
+        await pilot.pause()
+        assert 'preparing' in str(app.query_one('#status', Static).render()).lower()
+        assert app.query_one(Composer).text == 'Is it running?'
+        await pilot.press('escape')
+        await app.running_task
+        assert cancelled.is_set()
+        assert not app._busy()
+        assert not app.query_one('#cancel', Button).display
+        assert 'send' in str(app.query_one('#run', Button).label)
