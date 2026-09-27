@@ -21,10 +21,11 @@ def main() -> int:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print("Ion needs an interactive terminal. Run make run in a terminal window.", file=sys.stderr)
         return 2
+    workspace_root = Path.cwd().resolve(strict=True)
     config_path = Path(os.environ.get("ION_CONFIG", Path(__file__).resolve().parents[2] / "ion.toml"))
     config = load_config(config_path)
     load_local_env(config_path, evaluation=bool(config.evaluation_profile))
-    IonApp(config=config, repo_hint=os.environ.get("ION_REPO", "")).run()
+    IonApp(config=config, workspace_root=workspace_root).run()
     return 0
 
 
