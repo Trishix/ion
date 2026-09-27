@@ -25,6 +25,8 @@ class Engine:
         self.context = ContextManager()
         self.queue: asyncio.Queue[EngineEvent] = asyncio.Queue()
         self.cancelled = False
+        self.pending_steering: list[str] = []
+        self.applied_steering: list[str] = []
 
     async def events(self):
         while True:
@@ -36,6 +38,12 @@ class Engine:
     async def cancel(self) -> None:
         self.cancelled = True
         await self.dispatcher.supervisor.close()
+
+    async def steer(self, instruction: str) -> None:
+        if not instruction.strip():
+            raise ValueError("steering instruction cannot be blank")
+        self.pending_steering.append(instruction.strip())
+        await self._emit(Phase.intake, f"User steering queued: {instruction.strip()[:200]}")
 
     async def _emit(self, phase: Phase, message: str) -> None:
         await self.queue.put(EngineEvent(phase=phase, message=message))
@@ -52,14 +60,23 @@ class Engine:
         summary = "No final result supplied"
         outcome = Outcome.unverified
         rate_limit_retries = 0
+        reported_dropped_turns = 0
         await self._emit(Phase.intake, "Task accepted")
         try:
             for _ in range(100):
                 if self.cancelled:
                     outcome = Outcome.cancelled
                     break
+                if self.pending_steering:
+                    additions = self.pending_steering[:]
+                    self.pending_steering.clear()
+                    self.applied_steering.extend(additions)
+                    history.append({"role": "user", "content": "User steering: " + "\n".join(additions)})
                 self.budget.admit(Phase.act)
-                packet = self.context.build(task, profile, Phase.act, history, instruction_text)
+                packet = self.context.build(task, profile, Phase.act, history, instruction_text, tuple(self.applied_steering))
+                if packet.dropped_turns > reported_dropped_turns:
+                    reported_dropped_turns = packet.dropped_turns
+                    await self._emit(Phase.act, f"Context trimmed: {reported_dropped_turns} older tool turns omitted")
                 request = ModelRequest(messages=packet.messages, tools=tool_schemas() if profile.tool_protocol == "native" else (), max_output_tokens=packet.max_output_tokens, profile_digest=profile_digest(profile))
                 text_parts: list[str] = []
                 calls: list[ModelEvent] = []
@@ -95,6 +112,11 @@ class Engine:
                         history.append({"role": "user", "content": "Return exactly one valid JSON action object."})
                         continue
                 if calls:
+                    if len(calls) > 1 and any(event.tool == "finish_request" for event in calls):
+                        summary = "finish_request must be the only tool call in its response"
+                        outcome = Outcome.blocked
+                        break
+                    finish_requested = False
                     assistant: dict = {"role": "assistant", "content": content or None}
                     if profile.tool_protocol == "native":
                         assistant["tool_calls"] = [{"id": call.call_id, "type": "function", "function": {"name": call.tool, "arguments": json.dumps(call.arguments)}} for call in calls]
@@ -104,6 +126,14 @@ class Engine:
                         await self._emit(Phase.act, f"{call.tool} requested")
                         if call.tool == "finish_request":
                             summary = str(call.arguments.get("summary", content))
+                            finish_requested = True
+                            if self.pending_steering:
+                                result = await self.dispatcher.execute(call)
+                                response = json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
+                                if profile.tool_protocol == "native":
+                                    history.append({"role": "tool", "tool_call_id": event.call_id, "content": response[:12000]})
+                                else:
+                                    history.append({"role": "user", "content": f"Tool result: {response[:12000]}"})
                             break
                         result = await self.dispatcher.execute(call)
                         if call.tool == "command_start" and result.status == OperationStatus.succeeded:
@@ -116,10 +146,15 @@ class Engine:
                             history.append({"role": "tool", "tool_call_id": event.call_id, "content": response[:12000]})
                         else:
                             history.append({"role": "user", "content": f"Tool result: {response[:12000]}"})
-                    if any(call.tool == "finish_request" for call in (ToolCall(task_id=task.task_id, tool=event.tool or "", arguments=event.arguments or {}) for event in calls)):
+                    if finish_requested:
+                        if self.pending_steering:
+                            continue
                         break
                 else:
                     summary = summary if summary != "No final result supplied" else content
+                    if self.pending_steering:
+                        history.append({"role": "assistant", "content": content})
+                        continue
                     break
             else:
                 outcome = Outcome.budget_exhausted

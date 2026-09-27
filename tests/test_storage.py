@@ -18,6 +18,9 @@ def test_run_history_survives_reopen_and_records_interruption(tmp_path):
     assert rows[0]["task"]["text"] == "Fix the parser"
     assert rows[0]["result"]["summary"] == "Needs broader checks"
     assert rows[0]["status"] == "unverified"
+    detail = reopened.inspect(task.task_id)
+    assert detail and detail["events"] == [{"phase": "inspect", "message": "Read parser.py"}]
+    assert reopened.inspect("missing") is None
     reopened.interrupt(task.task_id)
     assert reopened.recent()[0]["status"] == "unverified"
     reopened.close()
