@@ -11,6 +11,7 @@ def select_tool_bundle(
     has_artifacts: bool = False,
     target_hashes_available: bool = False,
     allow_commands: bool = False,
+    delete_intent: bool = False,
 ) -> tuple[str, ...]:
     """Select a small tool set from the current phase and observed evidence."""
     if phase == Phase.verify:
@@ -21,6 +22,8 @@ def select_tool_bundle(
             names.extend(("file_read", "file_outline", "write_file"))
             if observed_page_count > 0:
                 names.append("edit_file")
+                if delete_intent:
+                    names.append("delete_file")
                 if target_hashes_available:
                     names.append("patch_apply")
     elif phase == Phase.finalize:
@@ -33,6 +36,8 @@ def select_tool_bundle(
             names.append("run_linter")
         if observed_page_count > 0:
             names.append("edit_file")
+            if delete_intent:
+                names.append("delete_file")
             if target_hashes_available:
                 names.append("patch_apply")
     else:
@@ -45,10 +50,10 @@ def select_tool_bundle(
 
 def eligible_tools(*, edit_intent: bool, observed_page_count: int,
                    has_artifacts: bool, target_hashes_available: bool,
-                   allow_commands: bool) -> frozenset[str]:
+                   allow_commands: bool, delete_intent: bool = False) -> frozenset[str]:
     """Separate phase preferences from permission and evidence requirements."""
     return frozenset(name for phase in (Phase.inspect, Phase.act, Phase.verify, Phase.plan)
                      for name in select_tool_bundle(
                          phase, edit_intent=edit_intent, observed_page_count=observed_page_count,
                          has_artifacts=has_artifacts, target_hashes_available=target_hashes_available,
-                         allow_commands=allow_commands))
+                         allow_commands=allow_commands, delete_intent=delete_intent))

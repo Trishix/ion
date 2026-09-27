@@ -149,3 +149,9 @@ async def test_incomplete_task_is_not_verified_by_unchanged_files(tmp_path, prom
 def test_inspection_with_explicit_execution_keeps_command_authority(prompt):
     from ion.intent import task_intent
     assert task_intent(prompt) == 'task'
+
+
+@pytest.mark.parametrize('prompt', ['Delete obsolete files', 'Deleting the files in sample_project'])
+def test_file_deletion_is_an_edit_request(prompt):
+    from ion.intent import task_intent
+    assert task_intent(prompt) == 'edit'

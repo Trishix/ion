@@ -118,3 +118,35 @@ async def test_engine_recovers_once_from_repeated_reads_and_directs_edit(tmp_pat
     assert (repo / "app.py").read_text() == "value = 2\n"
     assert result.changed_files == ("app.py",)
     assert any(request.tool_choice == "edit_file" for request in provider.requests)
+
+
+@pytest.mark.asyncio
+async def test_engine_recovers_repeated_reads_and_directs_file_deletion(tmp_path):
+    from pathlib import Path
+    from ion.config import load_config
+    from ion.contracts import ModelEvent
+    from ion.engine import Engine
+    from ion.providers.scripted import ScriptedProvider
+    from ion.processes import CommandSupervisor
+    from ion.tools.registry import ToolDispatcher
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "obsolete.txt").write_text("remove me\n")
+    workspace = Workspace.capture(repo)
+    artifacts = ArtifactStore(tmp_path / "artifacts")
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    read = {"relative_path": "obsolete.txt"}
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments=read, call_id=f"read-{i}"), ModelEvent(kind="completed")]
+        for i in range(1, 5)
+    ] + [[ModelEvent(kind="tool_call", tool="delete_file", arguments={
+        "plan": "Remove obsolete file", "relative_path": "obsolete.txt", "read_id": "r1", "done": True,
+    }, call_id="delete"), ModelEvent(kind="completed")]])
+    config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    config = config.model_copy(update={"economy": config.economy.model_copy(update={"enabled": False})})
+    engine = Engine(config, provider, dispatcher)
+    result = await engine.run(TaskSpec(text="Delete obsolete.txt", repo_path=str(repo), profile_name="openrouter-qwen-free"))
+    assert not (repo / "obsolete.txt").exists()
+    assert result.changed_files == ("obsolete.txt",)
+    assert any(request.tool_choice == "delete_file" for request in provider.requests)

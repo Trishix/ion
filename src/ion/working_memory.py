@@ -35,6 +35,9 @@ class WorkingMemory:
         elif call.tool in {"patch_apply", "edit_file", "write_file"}:
             for path in data.get("changed_files", []):
                 self._remember(path, {"path": path, "sha256": digest(self.workspace.resolve(path).read_bytes()), "status": "edited; unverified"})
+        elif call.tool == "delete_file":
+            for path in data.get("deleted_files", data.get("changed_files", [])):
+                self._remember(path, {"path": path, "status": "deleted; unverified"})
         elif call.tool == "repo_search":
             for match in data.get("matches", [])[:6]:
                 path = match["path"]

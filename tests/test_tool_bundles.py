@@ -241,6 +241,10 @@ def test_progressive_bundles_expose_evidence_gated_tools(tmp_path):
     edit_ready = select_tool_bundle(Phase.act, edit_intent=True, observed_page_count=1,
                                     has_artifacts=False, target_hashes_available=True, allow_commands=False)
     assert {"edit_file", "patch_apply"} <= set(edit_ready)
+    delete_ready = select_tool_bundle(Phase.act, edit_intent=True, observed_page_count=1,
+                                      has_artifacts=False, target_hashes_available=True, allow_commands=False,
+                                      delete_intent=True)
+    assert {"edit_file", "delete_file", "patch_apply"} <= set(delete_ready)
     artifacts.put(b"output", "command_output")
     with_artifact = select_tool_bundle(Phase.verify, edit_intent=False, observed_page_count=1,
                                        has_artifacts=artifacts.has_artifacts(), target_hashes_available=False, allow_commands=True)

@@ -93,7 +93,9 @@ def test_recovery_eligibility_keeps_permission_and_evidence_gates():
     base = dict(edit_intent=True, observed_page_count=0, has_artifacts=False, target_hashes_available=False, allow_commands=False)
     names = eligible_tools(**base)
     assert {'repo_list', 'repo_search', 'infra_scan', 'web_search', 'diff_inspect', 'write_file'} <= names
-    assert not {'command_start', 'run_linter', 'edit_file', 'patch_apply', 'artifact_read'} & names
+    assert not {'command_start', 'run_linter', 'edit_file', 'delete_file', 'patch_apply', 'artifact_read'} & names
     ready = eligible_tools(**{**base, 'observed_page_count': 1, 'has_artifacts': True, 'target_hashes_available': True, 'allow_commands': True})
     assert {'command_start', 'run_linter', 'edit_file', 'patch_apply', 'artifact_read'} <= ready
+    delete_ready = eligible_tools(**{**base, 'observed_page_count': 1, 'has_artifacts': True, 'target_hashes_available': True, 'allow_commands': True, 'delete_intent': True})
+    assert {'command_start', 'run_linter', 'edit_file', 'delete_file', 'patch_apply', 'artifact_read'} <= delete_ready
     assert not {'edit_file', 'write_file', 'patch_apply'} & eligible_tools(**{**base, 'edit_intent': False})

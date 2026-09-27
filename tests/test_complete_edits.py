@@ -69,6 +69,46 @@ async def test_creation_and_empty_file_rewrite_are_guarded(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_delete_requires_observed_current_file_and_records_attribution(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "obsolete.txt").write_text("remove me\n")
+    artifacts = ArtifactStore(tmp_path / "artifacts")
+    workspace = Workspace.capture(repo)
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    read = await execute(dispatcher, "file_read", relative_path="obsolete.txt")
+    deleted = await execute(dispatcher, "delete_file", plan="Remove obsolete file", relative_path="obsolete.txt",
+                            read_id=read.data["read_id"], done=True)
+    assert deleted.status == "succeeded"
+    assert deleted.data["deleted_files"] == ["obsolete.txt"]
+    assert not (repo / "obsolete.txt").exists()
+    assert dispatcher.workspace.changes().attributable_files == ("obsolete.txt",)
+    assert "-remove me" in dispatcher.workspace.patch_text()
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_wrong_or_stale_reads_and_directories(tmp_path):
+    repo, dispatcher = setup(tmp_path)
+    (repo / "a.txt").write_text("a\n")
+    (repo / "b.txt").write_text("b\n")
+    (repo / "folder").mkdir()
+    read_a = await execute(dispatcher, "file_read", relative_path="a.txt")
+    read_b = await execute(dispatcher, "file_read", relative_path="b.txt")
+    wrong = await execute(dispatcher, "delete_file", plan="Remove b", relative_path="b.txt",
+                          read_id=read_a.data["read_id"], done=True)
+    assert wrong.status == "failed"
+    (repo / "b.txt").write_text("changed\n")
+    stale = await execute(dispatcher, "delete_file", plan="Remove b", relative_path="b.txt",
+                          read_id=read_b.data["read_id"], done=True)
+    assert stale.status == "failed"
+    directory = await execute(dispatcher, "delete_file", plan="Remove folder", relative_path="folder",
+                              read_id=read_a.data["read_id"], done=True)
+    assert directory.status == "failed"
+    assert (repo / "b.txt").exists()
+    assert (repo / "folder").is_dir()
+
+
+@pytest.mark.asyncio
 async def test_truncated_response_preserves_usage_and_emits_no_partial_tools():
     config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
     profile = resolve_profile(config, config.default_profile, "product")

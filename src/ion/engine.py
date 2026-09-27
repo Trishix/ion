@@ -112,6 +112,10 @@ class Engine:
         economy = task.mode == "product" and self.config.economy.enabled
         intent = task_intent(task.text)
         edit_intent = intent == 'edit'
+        deletion_intent = bool(re.search(
+            r"\b(?:delete|deleting)\b|\bremove\s+(?:the\s+)?(?:file|files|directory|folder)",
+            task.text, re.IGNORECASE,
+        ))
         create_intent = bool(re.search(r"\b(?:add|create|generate|write)\b", task.text, re.IGNORECASE))
         if economy:
             self.budget = BudgetLedger(max_requests=self.config.economy.max_requests,
@@ -150,7 +154,7 @@ class Engine:
         recovered_tools: set[str] = set()
         read_cycle_recoveries = 0
         force_edit_after_read_cycle = False
-        registered_tools = {item["function"]["name"] for item in (*tool_schemas(), *tool_schemas(("edit_file", "write_file")))}
+        registered_tools = {item["function"]["name"] for item in (*tool_schemas(), *tool_schemas(("edit_file", "write_file", "delete_file")))}
         edit_phase_started = False
         expanded_output = bool(economy and edit_intent and re.search(r"\b(?:rewrite|replace|regenerate)\b", task.text, re.IGNORECASE))
         truncation_retries = 0
@@ -251,7 +255,8 @@ class Engine:
                                            observed_page_count=read_count,
                                            has_artifacts=self.dispatcher.artifacts.has_artifacts(),
                                            target_hashes_available=bool(self.dispatcher.reads),
-                                           allow_commands=self.dispatcher.allow_commands)
+                                           allow_commands=self.dispatcher.allow_commands,
+                                           delete_intent=deletion_intent)
                 create_ready = create_intent and creation_navigation_ready
                 if phase == Phase.inspect and create_ready:
                     names += ("write_file",)
@@ -263,7 +268,8 @@ class Engine:
                     edit_intent=edit_intent, observed_page_count=read_count,
                     has_artifacts=self.dispatcher.artifacts.has_artifacts(),
                     target_hashes_available=bool(self.dispatcher.reads),
-                    allow_commands=self.dispatcher.allow_commands)
+                    allow_commands=self.dispatcher.allow_commands,
+                    delete_intent=deletion_intent)
                 if intent == 'answer':
                     eligible = eligible.intersection(READ_ONLY_TOOLS)
                 names = tuple(dict.fromkeys((*names, *sorted(recovered_tools.intersection(eligible)))))
@@ -338,10 +344,13 @@ class Engine:
                     await self._emit(Phase.act, f"Context trimmed: {reported_dropped_turns} older tool turns omitted")
                 self.dispatcher.scope_write_reads(packet.messages)
                 forced_write = forced_write and bool(self.dispatcher.visible_write_reads)
-                directed_tool = ('write_file' if forced_write else 'edit_file'
-                                 if ((economy and edit_intent and action_reminders and self.dispatcher.reads and not workspace.writes)
-                                     or (force_edit_after_read_cycle and edit_intent and self.dispatcher.reads and not workspace.writes))
-                                 else None)
+                force_mutation = ((economy and edit_intent and action_reminders and self.dispatcher.reads and not workspace.writes)
+                                  or (force_edit_after_read_cycle and edit_intent and self.dispatcher.reads and not workspace.writes))
+                directed_tool = (
+                    "write_file" if forced_write else
+                    "delete_file" if force_mutation and deletion_intent else
+                    "edit_file" if force_mutation else None
+                )
                 if not directed_tools_supported or directed_tool not in offered_names:
                     directed_tool = None
                 request = ModelRequest(messages=packet.messages, tools=schemas if profile.tool_protocol == "native" else (), max_output_tokens=packet.max_output_tokens, profile_digest=profile_digest(profile), tool_choice=directed_tool if profile.tool_protocol == "native" else None)
@@ -469,7 +478,8 @@ class Engine:
                             loop_guard = LoopGuard()
                             progress_hint = (
                                 "The requested files have already been inspected. Stop rereading unchanged pages. "
-                                "Apply the requested change with edit_file using an observed read_id, or report the concrete blocker with finish_request."
+                                "For file removal, use delete_file with the observed read_id; otherwise use edit_file with the observed read_id. "
+                                "Report a concrete blocker with finish_request only if the requested action is impossible."
                             )
                             history.append({"role": "user", "content": progress_hint})
                             await self._emit(Phase.act, "Repeated reads recovered once; directing the model to edit observed evidence")
@@ -479,6 +489,12 @@ class Engine:
                         error_category = "repeated_tool_cycle"
                         break
                     if loop_state == "warn":
+                        if (force_edit_after_read_cycle and edit_intent and calls
+                                and all(call.tool == "file_read" for call in calls)):
+                            summary = "Stopped repeated tool cycle after the bounded edit recovery"
+                            outcome = Outcome.blocked
+                            error_category = "repeated_tool_cycle"
+                            break
                         history.append({"role": "user", "content": "Repeated tool cycle detected. Choose a different query/file or act on existing evidence. Do not repeat the same actions; report a blocker with finish_request if stuck."})
                         await self._emit(Phase.act, "Repeated tool cycle detected; asking model to change approach")
                         continue
@@ -504,7 +520,7 @@ class Engine:
                         elif call.tool == "repo_search":
                             safe_detail = {"path": str(call.arguments.get("relative_path", ""))[:300],
                                            "query_chars": len(str(call.arguments.get("query", "")))}
-                        elif call.tool in {"edit_file", "write_file"}:
+                        elif call.tool in {"edit_file", "write_file", "delete_file"}:
                             safe_detail = {"read_id": str(call.arguments.get("read_id", ""))[:40],
                                            "old_chars": len(str(call.arguments.get("old_text", ""))),
                                            "new_chars": len(str(call.arguments.get("new_text", call.arguments.get("content", "")))),
@@ -590,7 +606,7 @@ class Engine:
                                 else:
                                     history.append({"role": "user", "content": f"Tool result: {response}"})
                             break
-                        if economy and call.tool in {"edit_file", "write_file"}:
+                        if economy and call.tool in {"edit_file", "write_file", "delete_file"}:
                             await self._emit(Phase.plan, str(call.arguments.get("plan", ""))[:600])
                         if self.operation_store:
                             self.operation_store.prepare_operation(task.task_id, call.operation_id, call.tool, call.arguments)
@@ -663,10 +679,10 @@ class Engine:
                                     previous["content"] = json.dumps(old, separators=(",", ":"))
                         elif call.tool in {"repo_list", "repo_search"} and result.status == OperationStatus.succeeded:
                             creation_navigation_ready = True
-                        elif call.tool in {"patch_apply", "edit_file", "write_file"} and result.status == OperationStatus.succeeded:
+                        elif call.tool in {"patch_apply", "edit_file", "write_file", "delete_file"} and result.status == OperationStatus.succeeded:
                             force_edit_after_read_cycle = False
                             edit_complete = bool(result.data.get("done"))
-                            progress_hint = "Patch applied. Inspect the diff and run a relevant check. Do not reapply the same patch. Finish with an honest result."
+                            progress_hint = "Requested file change applied. Inspect the diff and run a relevant check. Do not repeat the same action. Finish with an honest result."
                             if economy:
                                 progress_hint = "Edit applied. Continue remaining edits; reread a changed file before editing it again. Run a relevant bounded check before finishing when command execution is available."
                                 if result.data.get("done") and event is calls[-1]:

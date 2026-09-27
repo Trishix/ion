@@ -33,7 +33,7 @@ SPECS: dict[str, dict[str, Any]] = {
     "finish_request": {"summary": "string"},
 }
 
-ECONOMY_TOOLS = ("repo_list", "repo_search", "file_read", "edit_file", "write_file", "diff_inspect", "finish_request")
+ECONOMY_TOOLS = ("repo_list", "repo_search", "file_read", "edit_file", "write_file", "delete_file", "diff_inspect", "finish_request")
 MAX_PATCH_EDITS = 8
 MAX_PATCH_REPLACEMENT_BYTES = 32_000
 PRIVATE_DIRECTORIES = {".git", ".hg", ".svn", ".ssh", ".aws"}
@@ -156,7 +156,22 @@ def tool_schemas(names: tuple[str, ...] | None = None) -> tuple[dict[str, Any], 
             },
         },
     }
-    return tuple(schema for schema in (*schemas, edit, write) if schema["function"]["name"] in names)
+    delete = {
+        "type": "function", "function": {
+            "name": "delete_file",
+            "description": "Delete one observed regular file after checking its current hash. This never deletes directories; do not empty a file as a substitute.",
+            "parameters": {
+                "type": "object", "properties": {
+                    "plan": {"type": "string", "minLength": 1, "maxLength": 600, "pattern": r"\S"},
+                    "relative_path": {"type": "string"},
+                    "read_id": {"type": "string", "description": "Required read_id for the existing file; read it before deleting."},
+                    "done": {"type": "boolean"},
+                },
+                "required": ["plan", "relative_path", "read_id", "done"], "additionalProperties": False,
+            },
+        },
+    }
+    return tuple(schema for schema in (*schemas, edit, write, delete) if schema["function"]["name"] in names)
 
 
 class ToolDispatcher:
@@ -255,7 +270,7 @@ class ToolDispatcher:
 
     async def execute(self, call: ToolCall) -> ToolResult:
         name, args = call.tool, call.arguments
-        if name not in SPECS and name not in {"edit_file", "write_file"}:
+        if name not in SPECS and name not in {"edit_file", "write_file", "delete_file"}:
             return self._fail(call, "unknown tool")
         schema = next(item["function"]["parameters"] for item in tool_schemas((name,)) if item["function"]["name"] == name)
         try:
@@ -340,6 +355,8 @@ class ToolDispatcher:
                 data["done"] = args["done"]
             elif name == "write_file":
                 data = self._write_file(args)
+            elif name == "delete_file":
+                data = self._delete_file(args)
             elif name == "patch_apply":
                 if len(args["edits"]) > MAX_PATCH_EDITS:
                     raise ValueError("patch batch exceeds eight edits")
@@ -526,6 +543,29 @@ class ToolDispatcher:
                 Path(temp).unlink(missing_ok=True)
             result = {"changed_files": [relative]}
         return {**result, "done": args["done"]}
+
+    def _delete_file(self, args: dict) -> dict:
+        relative = args["relative_path"]
+        if private_path(relative):
+            raise ValueError("private file edits are unavailable")
+        path = self.workspace.resolve(relative)
+        canonical = path.relative_to(self.workspace.root).as_posix()
+        # Deletion needs only a previously observed hash, not the file body. Keep
+        # read IDs valid even when context compaction omits an older body; the
+        # immediate hash check below still prevents stale or external deletes.
+        authorized = self.reads
+        read_id = args["read_id"]
+        if read_id not in authorized:
+            raise ValueError("deleting an existing file requires read_id; read it before deleting")
+        read_path, sha256, _, _ = authorized[read_id]
+        if read_path != canonical:
+            raise ValueError("read_id belongs to another file")
+        raw = path.read_bytes()
+        if digest(raw) != sha256:
+            raise ValueError("stale read; reread the changed file")
+        path.unlink()
+        self.workspace.record_write(canonical, sha256, None, raw, b"")
+        return {"changed_files": [canonical], "deleted_files": [canonical], "done": args["done"]}
 
     def _fail(self, call: ToolCall, reason: str) -> ToolResult:
         result = ToolResult(operation_id=call.operation_id, status=OperationStatus.failed, summary="tool failed", error=reason)
