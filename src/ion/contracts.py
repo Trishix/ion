@@ -177,6 +177,17 @@ class ContextCheckpoint(StrictModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ContextManifest(StrictModel):
+    included_turn_ids: tuple[str, ...] = ()
+    omitted_turn_ids: tuple[str, ...] = ()
+    checkpoint_id: str | None = None
+    pinned_evidence_refs: tuple[str, ...] = ()
+    selected_tool_names: tuple[str, ...] = ()
+    estimated_input_tokens: int = Field(ge=0)
+    output_cap: int = Field(gt=0)
+    omission_reasons: dict[str, str] = Field(default_factory=dict)
+
+
 class BudgetReport(StrictModel):
     requests_used: int = Field(ge=0)
     requests_remaining: int = Field(ge=0)
