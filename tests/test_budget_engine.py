@@ -491,6 +491,33 @@ async def test_finalization_uses_reserved_fifth_request_after_four_reads(tmp_pat
     assert result.budget.requests_remaining == 0
 
 
+@pytest.mark.asyncio
+async def test_evaluation_bounds_varied_read_only_inspection_before_request_exhaustion(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="repo_list",
+                    arguments={"relative_path": "", "offset": offset}, call_id=f"list-{offset}"),
+         ModelEvent(kind="completed")]
+        for offset in range(30)
+    ])
+    engine, repo = _engine(tmp_path, provider, files={"README.md": "repository notes\n"})
+    profile = engine.config.profiles[engine.config.default_profile].copy()
+    profile["locked"] = True
+    engine.config = engine.config.model_copy(update={
+        "profiles": {**engine.config.profiles, engine.config.default_profile: profile},
+    })
+
+    result = await engine.run(TaskSpec(
+        text="Find all bugs in the repository",
+        repo_path=str(repo),
+        profile_name=engine.config.default_profile,
+        mode="evaluation",
+    ))
+
+    assert result.outcome == "blocked"
+    assert result.error_category == "read_only_inspection_limit"
+    assert len(provider.requests) < engine.budget.max_requests
+
+
 def test_memory_file_does_not_offer_artifact_tools(tmp_path):
     store = ArtifactStore(tmp_path / "artifacts")
     (store.root / "MEMORY.md").write_text("task pointers")

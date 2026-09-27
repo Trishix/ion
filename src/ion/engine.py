@@ -172,6 +172,8 @@ class Engine:
         last_cap: int | None = None
         last_protected = 0
         invalid_argument_failures = 0
+        finalization_started = False
+        finalization_turns = 0
         tool_preview_chars = (self.config.economy.max_tool_preview_chars if economy else
                               self.config.economy.output_focused_read_page_chars)
         read_page_chars = (4000 if economy else self.config.economy.output_focused_read_page_chars)
@@ -268,9 +270,26 @@ class Engine:
                 finalization_needed = (remaining is not None and last_estimate is not None and
                                        remaining < last_estimate + configured_tiers[WorkClass.inspect] +
                                        policy.verification_tokens + policy.finalization_tokens)
-                if not edit_intent and inspected and (self.budget.used >= int(self.budget.max_requests * 0.8)
-                                                       or finalization_needed):
+                read_only_boundary = (
+                    not economy
+                    and not edit_intent
+                    and read_only_turns >= max(1, self.budget.max_requests - 4)
+                )
+                if not edit_intent and (
+                        finalization_started
+                        or (inspected and (self.budget.used >= int(self.budget.max_requests * 0.8)
+                                           or finalization_needed))
+                        or read_only_boundary):
                     phase = Phase.finalize
+                    if not finalization_started:
+                        finalization_started = True
+                        await self._emit(Phase.plan, "Bounded inspection reached; reserving the remaining requests for finalization")
+                    finalization_turns += 1
+                    if finalization_turns > 2:
+                        summary = "Stopped open-ended inspection at the bounded finalization boundary"
+                        outcome = Outcome.blocked
+                        error_category = "read_only_inspection_limit"
+                        break
                 names = select_tool_bundle(phase, edit_intent=edit_intent,
                                            observed_page_count=read_count,
                                            has_artifacts=self.dispatcher.artifacts.has_artifacts(),
@@ -562,7 +581,19 @@ class Engine:
                             detail = f" · {call.arguments.get('relative_path', '')} · offset {call.arguments.get('offset', 0)}"
                         await self._emit(phase, f"{call.tool} requested{detail}")
                         if call.tool not in offered_names:
-                            if call.tool in eligible:
+                            if phase == Phase.finalize:
+                                unavailable_in_turn = True
+                                reason = "finalization_only"
+                                unavailable_error = (
+                                    "The bounded finalization phase is active. Do not inspect more files; "
+                                    "use diff_summary or finish_request with the evidence already observed."
+                                )
+                                summary = "Stopped open-ended inspection at the bounded finalization boundary"
+                                outcome = Outcome.blocked
+                                error_category = "read_only_inspection_limit"
+                                finish_requested = True
+                                await self._emit(phase, "Rejected additional repository navigation after the inspection boundary")
+                            elif call.tool in eligible:
                                 recovered_tools.add(call.tool)
                                 reason = "phase_hidden"
                                 unavailable_error = "Not executed. This tool will be offered next turn; retry using its schema."
@@ -802,6 +833,11 @@ class Engine:
                             continue
                         break
                 else:
+                    if finalization_started:
+                        summary = "Model did not provide a final result at the bounded finalization boundary"
+                        outcome = Outcome.blocked
+                        error_category = "read_only_inspection_limit"
+                        break
                     if intent == 'answer' and inspected and content.strip() and not self.pending_steering:
                         summary = self._answer_text(content)
                         break
