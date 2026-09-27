@@ -67,6 +67,31 @@ async def test_readme_improvement_gets_edit_instead_of_advice_only(tmp_path, pro
 
 
 @pytest.mark.asyncio
+async def test_find_all_bugs_and_solve_it_keeps_discovery_and_edit_tools(tmp_path):
+    (tmp_path / 'bug.py').write_text('def value():\n    return 1\n')
+    engine, provider = harness(tmp_path, [
+        [ModelEvent(kind='tool_call', tool='repo_search', arguments={'query': 'return 1'}, call_id='search')],
+        [ModelEvent(kind='tool_call', tool='file_read', arguments={'relative_path': 'bug.py'}, call_id='read')],
+        [ModelEvent(kind='tool_call', tool='edit_file', arguments={
+            'plan': 'Fix the discovered bug.', 'read_id': 'r1',
+            'old_text': 'return 1', 'new_text': 'return 2', 'done': True,
+        }, call_id='edit')],
+        [ModelEvent(kind='tool_call', tool='finish_request', arguments={'summary': 'Fixed the discovered bug.'}, call_id='finish')],
+    ])
+    result = await engine.run(TaskSpec(
+        text='Find all bugs and solve it', repo_path=str(tmp_path), profile_name='fixture',
+    ))
+    assert result.changed_files == ('bug.py',)
+    assert (tmp_path / 'bug.py').read_text().endswith('return 2\n')
+    assert 'repo_search' in {
+        item['function']['name'] for item in provider.requests[0].tools
+    }
+    assert {'repo_search', 'write_file', 'edit_file'} <= {
+        item['function']['name'] for item in provider.requests[2].tools
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('mode', ['product', 'evaluation'])
 async def test_question_cannot_modify_files_even_if_model_requests_it(tmp_path, mode):
     (tmp_path / 'README.md').write_text('# Usage\nRun the app.\n')
@@ -155,3 +180,19 @@ def test_inspection_with_explicit_execution_keeps_command_authority(prompt):
 def test_file_deletion_is_an_edit_request(prompt):
     from ion.intent import task_intent
     assert task_intent(prompt) == 'edit'
+
+
+@pytest.mark.parametrize('prompt', [
+    'Find all bugs and solve it',
+    'Find the failing cases and fix them',
+    'Search the repository for bugs, then repair them',
+])
+def test_compound_bug_discovery_and_repair_is_an_edit_request(prompt):
+    from ion.intent import task_intent
+    assert task_intent(prompt) == 'edit'
+
+
+@pytest.mark.parametrize('prompt', ['Find all bugs', 'Find the definition of value'])
+def test_read_only_find_request_stays_read_only(prompt):
+    from ion.intent import task_intent
+    assert task_intent(prompt) == 'answer'

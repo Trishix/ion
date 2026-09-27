@@ -238,6 +238,7 @@ def test_progressive_bundles_expose_evidence_gated_tools(tmp_path):
                               has_artifacts=False, target_hashes_available=False, allow_commands=False)
     assert "edit_file" not in edit
     assert "patch_apply" not in edit
+    assert {"repo_list", "repo_search", "infra_scan"} <= set(edit)
     edit_ready = select_tool_bundle(Phase.act, edit_intent=True, observed_page_count=1,
                                     has_artifacts=False, target_hashes_available=True, allow_commands=False)
     assert {"edit_file", "patch_apply"} <= set(edit_ready)

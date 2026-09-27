@@ -31,7 +31,11 @@ def select_tool_bundle(
     elif phase == Phase.plan:
         names = ["file_read", "diff_summary"]
     elif phase == Phase.act and edit_intent:
-        names = ["file_read", "file_outline", "write_file", "diff_summary", "trace_symbol"]
+        # Repair tasks need to keep discovering repository-wide evidence after
+        # the first read. Tool availability follows the task, not a premature
+        # phase transition caused by one observed page.
+        names = ["repo_list", "repo_search", "infra_scan", "file_read", "file_outline",
+                 "write_file", "diff_summary", "trace_symbol"]
         if allow_commands:
             names.append("run_linter")
         if observed_page_count > 0:

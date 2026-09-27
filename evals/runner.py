@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from evals.grader import grade_case
+from evals.swebench import run_local_check
+
 
 def load_manifest(path: Path) -> list[dict]:
     data = json.loads(Path(path).read_text())
@@ -26,3 +29,34 @@ def evaluate_case(manifest_entry: dict, profile, execute: Callable | None = None
         return {"case_id": manifest_entry["id"], "status": "not_run", "reason": "no executor supplied"}
     result = execute(manifest_entry, profile)
     return {"case_id": manifest_entry["id"], "status": "completed", "result": result}
+
+
+def evaluate_local_case(manifest_entry: dict, *, cwd: Path,
+                        changed_files: tuple[str, ...], outcome: str,
+                        test_command=None) -> dict:
+    """Grade one case with a real local test command.
+
+    This mirrors the evidence shape used by the product without claiming to
+    replace SWE-bench's containerized evaluator.
+    """
+    command = test_command if test_command is not None else manifest_entry.get("test_command")
+    if command is None:
+        raise ValueError("local case requires test_command")
+    check = run_local_check(command, cwd=cwd)
+    grade = grade_case(
+        manifest_entry,
+        changed_files=changed_files,
+        outcome=outcome,
+        verification_ids=("local-test",) if check.passed else (),
+    )
+    return {
+        "case_id": manifest_entry["id"],
+        "status": "passed" if grade.passed else "failed",
+        "check": {
+            "passed": check.passed,
+            "returncode": check.returncode,
+            "output": check.output,
+            "timed_out": check.timed_out,
+        },
+        "reasons": grade.reasons,
+    }

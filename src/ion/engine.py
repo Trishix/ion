@@ -34,9 +34,9 @@ class Engine:
         self.gateway = gateway
         self.dispatcher = dispatcher
         self.profile_override = profile_override
-        # Product and evaluation runs are output-focused. They may use the
-        # full request allowance while still reserving verification in the
-        # explicit bounded economy workflow below.
+        # Product and evaluation runs are task-progress driven. The ledger
+        # remains a hard safety ceiling, while completion is decided by tool
+        # evidence and the model's explicit finish action.
         self.budget = BudgetLedger(reserve_verification=False)
         self.context = ContextManager()
         self.queue: asyncio.Queue[EngineEvent] = asyncio.Queue()
@@ -125,7 +125,12 @@ class Engine:
         if economy:
             self.budget = BudgetLedger(max_requests=self.config.economy.max_requests,
                                        max_total_tokens=self.config.economy.max_total_tokens,
-                                       reserve_verification=True)
+                                       # Verification output remains protected
+                                       # by BudgetPolicy's token accounting, but
+                                       # requests stay task-driven. A request
+                                       # reserve must not force the model to
+                                       # stop discovering a fix at 80% usage.
+                                       reserve_verification=False)
         profile = self.profile_override or resolve_profile(self.config, task.profile_name, task.mode)
         self._diagnose("run.start", provider=profile.provider, model=profile.model_id,
                        mode=task.mode, economy=economy)
@@ -172,8 +177,6 @@ class Engine:
         last_cap: int | None = None
         last_protected = 0
         invalid_argument_failures = 0
-        finalization_started = False
-        finalization_turns = 0
         tool_preview_chars = (self.config.economy.max_tool_preview_chars if economy else
                               self.config.economy.output_focused_read_page_chars)
         read_page_chars = (4000 if economy else self.config.economy.output_focused_read_page_chars)
@@ -266,30 +269,11 @@ class Engine:
                     self._diagnose("phase.transition", from_phase="inspect", to_phase="edit",
                                    observed_pages=read_count, history_reset=False)
                     await self._emit(Phase.plan, "Inspection complete; preparing a focused edit")
-                remaining = self.budget.snapshot().remaining_tokens
-                finalization_needed = (remaining is not None and last_estimate is not None and
-                                       remaining < last_estimate + configured_tiers[WorkClass.inspect] +
-                                       policy.verification_tokens + policy.finalization_tokens)
-                read_only_boundary = (
-                    not economy
-                    and not edit_intent
-                    and read_only_turns >= max(1, self.budget.max_requests - 4)
-                )
-                if not edit_intent and (
-                        finalization_started
-                        or (inspected and (self.budget.used >= int(self.budget.max_requests * 0.8)
-                                           or finalization_needed))
-                        or read_only_boundary):
-                    phase = Phase.finalize
-                    if not finalization_started:
-                        finalization_started = True
-                        await self._emit(Phase.plan, "Bounded inspection reached; reserving the remaining requests for finalization")
-                    finalization_turns += 1
-                    if finalization_turns > 2:
-                        summary = "Stopped open-ended inspection at the bounded finalization boundary"
-                        outcome = Outcome.blocked
-                        error_category = "read_only_inspection_limit"
-                        break
+                # Budget values are safety ceilings, not a task planner. Keep
+                # discovery available until the model finishes or a hard
+                # ledger/loop/context guard stops the run. This matters for
+                # repository-wide repair requests where useful evidence often
+                # appears after the former 80% finalization boundary.
                 names = select_tool_bundle(phase, edit_intent=edit_intent,
                                            observed_page_count=read_count,
                                            has_artifacts=self.dispatcher.artifacts.has_artifacts(),
@@ -319,6 +303,13 @@ class Engine:
                 if phase == Phase.verify:
                     work_class = WorkClass.verify
                 elif phase == Phase.finalize:
+                    work_class = WorkClass.finalize
+                elif intent == 'answer' and inspected:
+                    # A read-only answer after evidence is gathered is a
+                    # lightweight completion turn. It must remain admissible
+                    # when the task token ceiling is nearly full; otherwise
+                    # accounting can prevent the model from reporting what it
+                    # already inspected.
                     work_class = WorkClass.finalize
                 elif expanded_output and (read_count or create_ready):
                     work_class = WorkClass.rewrite
@@ -581,19 +572,7 @@ class Engine:
                             detail = f" · {call.arguments.get('relative_path', '')} · offset {call.arguments.get('offset', 0)}"
                         await self._emit(phase, f"{call.tool} requested{detail}")
                         if call.tool not in offered_names:
-                            if phase == Phase.finalize:
-                                unavailable_in_turn = True
-                                reason = "finalization_only"
-                                unavailable_error = (
-                                    "The bounded finalization phase is active. Do not inspect more files; "
-                                    "use diff_summary or finish_request with the evidence already observed."
-                                )
-                                summary = "Stopped open-ended inspection at the bounded finalization boundary"
-                                outcome = Outcome.blocked
-                                error_category = "read_only_inspection_limit"
-                                finish_requested = True
-                                await self._emit(phase, "Rejected additional repository navigation after the inspection boundary")
-                            elif call.tool in eligible:
+                            if call.tool in eligible:
                                 recovered_tools.add(call.tool)
                                 reason = "phase_hidden"
                                 unavailable_error = "Not executed. This tool will be offered next turn; retry using its schema."
@@ -833,11 +812,6 @@ class Engine:
                             continue
                         break
                 else:
-                    if finalization_started:
-                        summary = "Model did not provide a final result at the bounded finalization boundary"
-                        outcome = Outcome.blocked
-                        error_category = "read_only_inspection_limit"
-                        break
                     if intent == 'answer' and inspected and content.strip() and not self.pending_steering:
                         summary = self._answer_text(content)
                         break

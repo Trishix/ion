@@ -30,10 +30,10 @@ async def test_navigation_recovers_after_edit_phase_transition(tmp_path, protoco
     result = await engine.run(TaskSpec(text='Make a folder and add an auth file with auth logic', repo_path=str(repo), profile_name=engine.config.default_profile))
     assert (repo / 'test/auth.py').exists(), result
     if protocol == 'native':
-        assert 'repo_list' not in {t['function']['name'] for t in provider.requests[1].tools}
-        assert 'repo_list' in {t['function']['name'] for t in provider.requests[2].tools}
+        assert 'repo_list' in {t['function']['name'] for t in provider.requests[1].tools}
     else:
-        assert 'phase_hidden' in str(provider.requests[2].messages)
+        assert 'repo_list' in str(provider.requests[1].messages)
+        assert 'phase_hidden' not in str(provider.requests[2].messages)
         assert 'repo_list' in str(provider.requests[2].messages)
 
 

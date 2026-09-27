@@ -474,7 +474,7 @@ async def test_engine_rewrite_accepts_all_visible_file_pages(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_finalization_uses_reserved_fifth_request_after_four_reads(tmp_path):
+async def test_explicit_finish_remains_available_after_four_reads(tmp_path):
     provider = ScriptedProvider([
         [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": f"f{i}.txt"}, call_id=f"r{i}"), ModelEvent(kind="completed")]
         for i in range(4)
@@ -487,12 +487,13 @@ async def test_finalization_uses_reserved_fifth_request_after_four_reads(tmp_pat
     assert len(provider.requests) == 5
     assert result.summary == "Inspected four files"
     assert result.error_category is None
-    assert {item["function"]["name"] for item in provider.requests[4].tools} == {"diff_summary", "finish_request"}
+    offered = {item["function"]["name"] for item in provider.requests[4].tools}
+    assert {"repo_search", "file_read", "finish_request"} <= offered
     assert result.budget.requests_remaining == 0
 
 
 @pytest.mark.asyncio
-async def test_evaluation_bounds_varied_read_only_inspection_before_request_exhaustion(tmp_path):
+async def test_normal_read_only_inspection_uses_the_full_safety_ceiling(tmp_path):
     provider = ScriptedProvider([
         [ModelEvent(kind="tool_call", tool="repo_list",
                     arguments={"relative_path": "", "offset": offset}, call_id=f"list-{offset}"),
@@ -506,16 +507,21 @@ async def test_evaluation_bounds_varied_read_only_inspection_before_request_exha
         "profiles": {**engine.config.profiles, engine.config.default_profile: profile},
     })
 
+    config = engine.config.model_copy(update={
+        "economy": engine.config.economy.model_copy(update={"enabled": False}),
+    })
+    engine = Engine(config, provider, engine.dispatcher)
     result = await engine.run(TaskSpec(
-        text="Find all bugs in the repository",
+        text="Inspect the repository",
         repo_path=str(repo),
         profile_name=engine.config.default_profile,
-        mode="evaluation",
     ))
 
-    assert result.outcome == "blocked"
-    assert result.error_category == "read_only_inspection_limit"
-    assert len(provider.requests) < engine.budget.max_requests
+    assert result.outcome == "budget_exhausted"
+    assert result.error_category == "request_limit"
+    assert len(provider.requests) == engine.budget.max_requests
+    assert all("repo_list" in {item["function"]["name"] for item in request.tools}
+               for request in provider.requests)
 
 
 def test_memory_file_does_not_offer_artifact_tools(tmp_path):

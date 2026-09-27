@@ -21,7 +21,7 @@ def test_economy_tool_catalog_pushes_model_to_edit_after_two_reads():
 
 
 @pytest.mark.asyncio
-async def test_economy_read_read_edit_finishes_without_repository_checks(tmp_path):
+async def test_economy_read_read_edit_keeps_repository_discovery_available(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     readme = repo / "README.md"
@@ -46,7 +46,7 @@ async def test_economy_read_read_edit_finishes_without_repository_checks(tmp_pat
     )
     third_tools = [item["function"]["name"] for item in provider.requests[2].tools]
     assert {"file_read", "edit_file", "write_file", "finish_request"} <= set(third_tools)
-    assert "repo_search" not in third_tools
+    assert "repo_search" in third_tools
     third_messages = provider.requests[2].messages
     assert any(message.get("tool_call_id") == "r2" for message in third_messages)
     assert "Short introduction." in json.dumps(third_messages)

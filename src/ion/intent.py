@@ -31,7 +31,7 @@ def task_intent(text: str) -> Literal['answer', 'edit', 'task']:
     # A constraint such as "do not change the test file" does not cancel
     # permission to edit other files in the original task.
     action_text = re.sub(r"\b(?:do not|don't|without)\s+(?:edit|change|modify|write)\w*\b", '', action_text, flags=re.I)
-    edit = re.search(r'\b(?:add|change|create|delet|edit|fix|solve|resolve|repair|generate|implement|make|write|remove|rename|replace|rewrite|update|improv|enhanc|refactor|polish|clarify|simplify|optimi[sz]|document|expand|correct)\w*\b', action_text, re.I)
+    edit = re.search(r'\b(?:add|change|create|delet|edit|fix|solv|resolve|repair|generate|implement|make|write|remove|rename|replace|rewrite|update|improv|enhanc|refactor|polish|clarify|simplify|optimi[sz]|document|expand|correct)\w*\b', action_text, re.I)
     make_change = re.search(r'\bmake\b.+\b(?:clearer|better|easier|shorter|longer|faster|readable|concise)\b', action_text, re.I)
     if edit or make_change:
         return 'edit'
