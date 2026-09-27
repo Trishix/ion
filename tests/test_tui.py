@@ -641,7 +641,7 @@ async def test_evaluation_issue_edits_and_verifies_checkout_with_universal_key(a
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('text', ['solve the issue', 'Please fix it', 'solve them'])
+@pytest.mark.parametrize('text', ['solve the issue', 'Please fix it', 'solve them', 'solve', 'fix', 'resolve', 'repair'])
 async def test_issue_reference_without_context_requests_details_before_network(app, monkeypatch, text):
     app.profile_name = 'deepseek-direct'
     async def unexpected_run(*args, **kwargs):
@@ -657,7 +657,8 @@ async def test_issue_reference_without_context_requests_details_before_network(a
 
 
 @pytest.mark.asyncio
-async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, monkeypatch, tmp_path):
+@pytest.mark.parametrize('followup', ['solve the issue', 'solve', 'fix', 'resolve', 'repair'])
+async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, monkeypatch, tmp_path, followup):
     app.profile_name = 'deepseek-direct'
     checkout = tmp_path / 'issue-repo'
     checkout.mkdir()
@@ -675,7 +676,7 @@ async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, mo
     monkeypatch.setattr('ion.tools.github.import_issue', fetch)
     monkeypatch.setattr(app, '_run_task', run)
     async with app.run_test() as pilot:
-        for message in ['https://github.com/acme/repo/issues/1', 'solve the issue', 'retry']:
+        for message in ['https://github.com/acme/repo/issues/1', followup, 'retry']:
             app.query_one(Composer).text = message
             await pilot.press('enter')
             await pilot.pause()
@@ -686,7 +687,7 @@ async def test_issue_followup_keeps_evidence_and_checkout_until_new_task(app, mo
             assert '/issues/1' in text
             assert kwargs['workspace_root'] == checkout
             assert 'parser crash' in kwargs['context_markdown']
-        assert 'solve the issue' in runs[1][0]
+        assert followup in runs[1][0]
         app.action_new()
         app.query_one(Composer).text = 'solve the issue'
         await pilot.press('enter')

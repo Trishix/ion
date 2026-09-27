@@ -105,3 +105,47 @@ async def test_native_answer_envelope_is_shown_as_readable_prose(tmp_path):
     result = await engine.run(TaskSpec(text='how should I use this repo', repo_path=str(tmp_path), profile_name='fixture'))
     assert result.summary == answer
     assert not result.changed_files
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('verb', ['Solve', 'Resolve', 'Repair'])
+@pytest.mark.parametrize('mode', ['product', 'evaluation'])
+async def test_solution_requests_receive_edit_tools_after_reading(tmp_path, verb, mode):
+    from ion.workspace import digest
+    source = 'value = 1\n'
+    (tmp_path / 'bug.py').write_text(source)
+    engine, provider = harness(tmp_path, [
+        [ModelEvent(kind='tool_call', tool='file_read', arguments={'relative_path': 'bug.py'}, call_id='read')],
+        [ModelEvent(kind='tool_call', tool='patch_apply', arguments={'edits': [{
+            'path': 'bug.py', 'expected_hash': digest(source.encode()), 'old_text': 'value = 1', 'new_text': 'value = 2',
+        }]}, call_id='patch')],
+        [ModelEvent(kind='tool_call', tool='finish_request', arguments={'summary': 'Corrected the value; tests unavailable.'}, call_id='finish')],
+    ], mode)
+    result = await engine.run(TaskSpec(text=f'{verb} the wrong return value', repo_path=str(tmp_path), profile_name='fixture', mode=mode))
+    assert 'patch_apply' in {tool['function']['name'] for tool in provider.requests[1].tools}
+    assert (tmp_path / 'bug.py').read_text() == 'value = 2\n'
+    assert result.changed_files == ('bug.py',)
+    assert result.outcome == 'unverified'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('prompt,summary,expected', [
+    ('Handle the repository problem', 'Blocker: no edit tool is available.', 'blocked'),
+    ('Handle the repository problem', 'Inspected the README.', 'unverified'),
+    ('Explain the service', 'Blocker: the service source is missing.', 'blocked'),
+])
+async def test_incomplete_task_is_not_verified_by_unchanged_files(tmp_path, prompt, summary, expected):
+    (tmp_path / 'README.md').write_text('# Project\n')
+    engine, provider = harness(tmp_path, [
+        [ModelEvent(kind='tool_call', tool='file_read', arguments={'relative_path': 'README.md'}, call_id='read')],
+        [ModelEvent(kind='tool_call', tool='finish_request', arguments={'summary': summary}, call_id='finish')],
+    ])
+    result = await engine.run(TaskSpec(text=prompt, repo_path=str(tmp_path), profile_name='fixture'))
+    assert result.outcome == expected
+    assert result.verification_ids == ()
+
+
+@pytest.mark.parametrize('prompt', ['Read the parser and run its tests', 'Find the test command and execute it'])
+def test_inspection_with_explicit_execution_keeps_command_authority(prompt):
+    from ion.intent import task_intent
+    assert task_intent(prompt) == 'task'

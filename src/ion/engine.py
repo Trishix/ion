@@ -766,7 +766,14 @@ class Engine:
             await self._emit(Phase.verify, f"Usage: {self.budget.used}/{self.budget.max_requests} requests · {self.budget.tokens_used}/{self.budget.max_total_tokens} accounted tokens (reported usage or estimates)")
         fingerprint = workspace.fingerprint()
         changes = workspace.changes()
-        if not edit_intent and not changes.changed_files and inspected and not records and self.dispatcher.reads:
+        # Inspection alone cannot prove completion of an unspecified task or
+        # turn an explicitly reported blocker into a successful result.
+        if outcome == Outcome.unverified and re.match(
+            r'^\s*\*{0,2}(?:blocker\s*:|blocked\b|unable to\b|cannot (?:complete|proceed|solve|fix)\b)', summary, re.I
+        ):
+            outcome = Outcome.blocked
+            error_category = 'model_reported_blocker'
+        if outcome == Outcome.unverified and intent == 'answer' and not changes.changed_files and inspected and not records and self.dispatcher.reads:
             path, sha256, offset, _ = next(iter(self.dispatcher.reads.values()))
             records.append(VerificationRecord(
                 criterion_ids=task.criteria or ("task",),

@@ -114,7 +114,7 @@ This supports existing project test commands without provisioning containers. It
 
 ### 9. Require evidence tied to the final workspace
 
-Verification observers recognize relevant successful checks from supported test runners and attach the command operation and workspace fingerprint. The completion gate rejects ambiguous attribution and requires a passing record matching the final fingerprint for verified edits. Read-only completion can use controller-generated static evidence when the workspace is unchanged.
+Verification observers recognize relevant successful checks from supported test runners and attach the command operation and workspace fingerprint. The completion gate rejects ambiguous attribution and requires a passing record matching the final fingerprint for verified edits. Explicit read-only completion can use controller-generated static evidence when the workspace is unchanged. Unspecified tasks do not receive static completion credit for merely reading files, and an explicit blocker remains blocked. Edit requests using solve, resolve, or repair receive the same guarded edit tools as fix requests.
 
 The result distinguishes verified, unverified, blocked, budget exhausted, failed, and cancelled outcomes. A patch, a model's summary, and a linter's success are insufficient by themselves. Relevance detection uses command and output heuristics, so a valid check can remain unrecognized and produce an unverified result.
 
