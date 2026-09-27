@@ -16,6 +16,15 @@ class EconomyConfig(BaseModel):
     enabled: bool = True
     max_requests: int = Field(default=12, ge=2, le=100)
     max_total_tokens: int = Field(default=24000, ge=2048)
+    inspect_output_tokens: int = Field(default=512, ge=256)
+    edit_output_tokens: int = Field(default=1024, ge=384)
+    rewrite_output_tokens: int = Field(default=4096, ge=768)
+    verify_output_tokens: int = Field(default=512, ge=256)
+    finalize_output_tokens: int = Field(default=512, ge=256)
+    verification_reserve_tokens: int = Field(default=256, ge=0)
+    finalization_reserve_tokens: int = Field(default=256, ge=0)
+    tool_preview_max_chars: int = Field(default=4000, ge=256, le=16000)
+    compaction_recoveries: Literal[1] = 1
 
 
 class AppConfig(BaseModel):
