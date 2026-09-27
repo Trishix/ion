@@ -23,22 +23,30 @@ class Transcript(RichLog):
 
 
 class Brand(Static):
-    """Render the supplied PNG as terminal cells; no graphics protocol required."""
+    """Render the packaged Ion mark with a compact terminal wordmark."""
 
     def render(self) -> Text:
         with Image.open(Path(__file__).parent / 'assets' / 'logo.png') as source:
             gray = source.convert('L')
-            bounds = gray.point(lambda value: 255 if value > 70 else 0).getbbox()
-            pixels = gray.crop(bounds).resize((16, 16), Image.Resampling.LANCZOS)
-        wordmark = ['█ █▀█ █▄ █', '█ █▄█ █ ▀█']
+            bounds = gray.point(lambda value: 255 if value > 48 else 0).getbbox()
+            pixels = gray.crop(bounds).resize((14, 14), Image.Resampling.LANCZOS)
+
         output = Text()
-        for row in range(8):
-            for col in range(16):
-                top = pixels.getpixel((col, row * 2)) > 100
-                bottom = pixels.getpixel((col, row * 2 + 1)) > 100
-                output.append('█' if top and bottom else '▀' if top else '▄' if bottom else ' ', style='#e7e5e4')
-            output.append('    ' + (wordmark[row - 3] if row in (3, 4) else '          '), style='bold #e7e5e4')
-            if row != 7:
+        lockup = {
+            1: ('ION', 'bold #e5e9e8'),
+            3: ('AUTONOMOUS', 'bold #82b7b5'),
+            4: ('REPOSITORY WORKBENCH', '#7d888b'),
+        }
+        for row in range(7):
+            for col in range(14):
+                top = pixels.getpixel((col, row * 2)) > 84
+                bottom = pixels.getpixel((col, row * 2 + 1)) > 84
+                cell = '█' if top and bottom else '▀' if top else '▄' if bottom else ' '
+                output.append(cell, style='#82b7b5')
+            label = lockup.get(row)
+            if label:
+                output.append('    ' + label[0], style=label[1])
+            if row != 6:
                 output.append('\n')
         return output
 

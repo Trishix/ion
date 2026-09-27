@@ -65,6 +65,10 @@ class IonApp(App):
         self._transcript: list = []
 
     def compose(self) -> ComposeResult:
+        with Horizontal(id='masthead'):
+            yield Static('ION', id='masthead-brand')
+            yield Static('AUTONOMOUS REPOSITORY WORKBENCH', id='masthead-title')
+            yield Static('CTRL P  COMMANDS', id='masthead-command')
         with Horizontal(id='body'):
             with Vertical(id='main'):
                 yield Static('New task', id='session-header', markup=False)
@@ -72,30 +76,32 @@ class IonApp(App):
                 with Vertical(id='center'):
                     with Vertical(id='home'):
                         yield Brand()
-                        yield Static('Your code. Your models. Your terminal.', id='home-caption')
+                        yield Static('LOCAL TOOLS  /  YOUR MODELS  /  VERIFIED CHANGES', id='home-caption')
                     with Vertical(id='composer-wrap'):
+                        yield Static('TASK / STEER', id='composer-label')
                         with Vertical(id='composer'):
-                            yield Composer(id='task', placeholder='Ask Ion to fix a bug… or type /help', highlight_cursor_line=False)
+                            yield Composer(id='task', placeholder='Describe one outcome… or type /help', highlight_cursor_line=False)
                             with Horizontal(id='composer-meta'):
                                 yield Static('', id='profile', markup=False)
                                 yield Button('send ↵', id='run')
                                 yield Button('stop esc', id='cancel', disabled=True)
-                        yield Static('ctrl+p commands   ctrl+x m models   shift+enter newline', id='hints')
+                        yield Static('CTRL P  COMMANDS    CTRL X M  MODELS    SHIFT ENTER  NEWLINE', id='hints')
                         yield Static('', id='status', markup=False)
             with Vertical(id='sidebar'):
-                yield Static('Context', classes='side-heading')
+                yield Static('RUN STATE', id='sidebar-title')
+                yield Static('01  CONTEXT', classes='side-heading')
                 yield Static('No requests yet', id='context-info', classes='side-text', markup=False)
-                yield Static('Model', classes='side-heading')
+                yield Static('02  MODEL', classes='side-heading')
                 yield Static('', id='model-info', classes='side-text', markup=False)
-                yield Static('Workspace', classes='side-heading')
+                yield Static('03  WORKSPACE', classes='side-heading')
                 yield Static('', id='repo-info', classes='side-text', markup=False)
-                yield Static('Changes', classes='side-heading')
+                yield Static('04  CHANGES', classes='side-heading')
                 yield Static('No files changed', id='changes-info', classes='side-text', markup=False)
-                yield Static('Verification', classes='side-heading')
+                yield Static('05  VERIFICATION', classes='side-heading')
                 yield Static('Not run', id='verification-info', classes='side-text', markup=False)
         with Horizontal(id='bottom'):
             yield Static('', id='cwd', markup=False)
-            yield Static('ion  0.1.0', id='version')
+            yield Static('LOCAL  /  ION 0.1.0', id='version')
 
     async def on_mount(self) -> None:
         self.theme = 'textual-dark'
@@ -139,9 +145,9 @@ class IonApp(App):
     def _profile_label(self) -> None:
         profile = self._profile()
         credential, _ = resolve_credential(profile, self.mode)
-        label = Text('Build  ', style='#fab283')
-        label.append(profile.model_id.split('/')[-1], style='#e7e5e4')
-        label.append(f'  {profile.provider}' + (' · key needed' if not credential else ''), style='#888888')
+        label = Text('MODEL  ', style='#82b7b5')
+        label.append(profile.model_id.split('/')[-1], style='#e5e9e8')
+        label.append(f'  /  {profile.provider}' + ('  /  key needed' if not credential else ''), style='#7d888b')
         self.query_one('#profile', Static).update(label)
         self.query_one('#model-info', Static).update(f'{profile.model_id.split("/")[-1]}\n{profile.provider}\n' + ('Evaluation locked' if self.mode == 'evaluation' else 'Selected for next task'))
 
@@ -349,7 +355,7 @@ class IonApp(App):
             self._status('Task not found.')
             return
         self._session(row['task']['text'])
-        self._log(Panel(Text(row['task']['text']), title='You', border_style='#444444'))
+        self._log(Panel(Text(row['task']['text']), title='TASK', border_style='#36515a'))
         self._log(f"{row['status']} · {row['task']['repo_path']}")
         if row['result']:
             self._log(row['result']['summary'])
@@ -485,8 +491,8 @@ class IonApp(App):
             self._session(text)
             self.query_one(Composer).text = ''
             self.query_one('#cancel', Button).display = True
-            self._log(Panel(Text(text), title='You', border_style='#444444'))
-            self._log(Text(f'{profile.provider} · {profile.model_id}', style='#fab283'))
+            self._log(Panel(Text(text), title='TASK', border_style='#36515a'))
+            self._log(Text(f'{profile.provider} / {profile.model_id}', style='#82b7b5'))
             self._status("Running task…")
             self.query_one('#changes-info', Static).update('No edits yet')
             self.query_one('#verification-info', Static).update('Pending')
@@ -505,7 +511,7 @@ class IonApp(App):
             for limitation in result.limitations:
                 self._log(limitation)
             if result.patch_artifact_id:
-                self._log(Syntax(artifacts.read(result.patch_artifact_id).decode('utf-8', 'replace')[:12000], 'diff', theme='monokai', background_color='#141414', word_wrap=True))
+                self._log(Syntax(artifacts.read(result.patch_artifact_id).decode('utf-8', 'replace')[:12000], 'diff', theme='monokai', background_color='#0e1113', word_wrap=True))
             # A refresh callback scheduled by _session can run after the task
             # finishes and clear RichLog while its deferred writes are still
             # pending. Reflow synchronously once all final output is present so
