@@ -403,7 +403,11 @@ class ToolDispatcher:
                                 truncated=bool(data.get("truncated", False)), lossy=bool(data.get("lossy", False)))
         except ValidationError as exc:
             location = ".".join(str(part) for part in exc.path) or "arguments"
-            result = self._fail(call, f"invalid {location}: {exc.validator} constraint")
+            result = self._fail(
+                call,
+                f"invalid {location}: {exc.validator} constraint",
+                data={"reason": "invalid_arguments", "tool": name, "required": schema.get("required", [])},
+            )
         except (ValueError, OSError, UnicodeError, KeyError, TypeError) as exc:
             result = self._fail(call, str(exc))
         self.results[result.operation_id] = result
@@ -567,8 +571,8 @@ class ToolDispatcher:
         self.workspace.record_write(canonical, sha256, None, raw, b"")
         return {"changed_files": [canonical], "deleted_files": [canonical], "done": args["done"]}
 
-    def _fail(self, call: ToolCall, reason: str) -> ToolResult:
-        result = ToolResult(operation_id=call.operation_id, status=OperationStatus.failed, summary="tool failed", error=reason)
+    def _fail(self, call: ToolCall, reason: str, data: dict[str, Any] | None = None) -> ToolResult:
+        result = ToolResult(operation_id=call.operation_id, status=OperationStatus.failed, summary="tool failed", data=data or {}, error=reason)
         self.results[result.operation_id] = result
         return result
 

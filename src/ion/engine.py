@@ -171,6 +171,7 @@ class Engine:
         last_estimate: int | None = None
         last_cap: int | None = None
         last_protected = 0
+        invalid_argument_failures = 0
         configured_tiers = {
             WorkClass.inspect: self.config.economy.inspect_output_tokens,
             WorkClass.edit: self.config.economy.edit_output_tokens,
@@ -748,13 +749,29 @@ class Engine:
                             edit_complete = False
                         if result.status == OperationStatus.failed:
                             await self._emit(Phase.act, f"{call.tool} failed: {(result.error or '')[:200]}")
+                            if result.data.get("reason") == "invalid_arguments":
+                                invalid_argument_failures += 1
+                                if invalid_argument_failures >= 2:
+                                    required = result.data.get("required") or []
+                                    required_hint = ", ".join(str(item) for item in required)
+                                    summary = (
+                                        f"Model supplied invalid arguments for {call.tool} twice; stopped before exhausting the request budget."
+                                        + (f" Required fields: {required_hint}." if required_hint else "")
+                                    )
+                                    outcome = Outcome.blocked
+                                    error_category = "invalid_tool_arguments"
+                                    finish_requested = True
+                                    await self._emit(Phase.act, "Repeated invalid tool arguments; stopping bounded recovery")
+                            else:
+                                repair_attempts += 1 if economy else 0
                             if economy:
-                                repair_attempts += 1
                                 if repair_attempts > 1:
                                     summary = "Tool failed after one repair attempt: " + (result.error or "unknown error")[:200]
                                     outcome = Outcome.blocked
                                     error_category = "tool_failure"
                                     finish_requested = True
+                        elif result.status == OperationStatus.succeeded:
+                            invalid_argument_failures = 0
                         if call.tool == "command_start" and result.status == OperationStatus.succeeded:
                             data = result.data
                             if int(data.get("exit_code") or 0) != 0:

@@ -265,6 +265,25 @@ async def test_provider_rate_limit_keeps_its_error_category(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_repeated_invalid_tool_arguments_stop_before_request_budget(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={}, call_id=f"read-{index}"), ModelEvent(kind="completed")]
+        for index in range(8)
+    ])
+    engine, repo = _engine(tmp_path, provider, files={"note.txt": "context"},
+                           economy_fields={"enabled": False})
+
+    result = await engine.run(TaskSpec(text="Inspect the repository", repo_path=str(repo),
+                                       profile_name=engine.config.default_profile))
+
+    assert len(provider.requests) == 2
+    assert result.outcome == "blocked"
+    assert result.error_category == "invalid_tool_arguments"
+    assert result.requests_used == 2
+    assert "relative_path" in result.summary
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_returns_partial_edits_for_resume(tmp_path):
     provider = ScriptedProvider([
         [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "a.txt"}, call_id="read"), ModelEvent(kind="completed")],
