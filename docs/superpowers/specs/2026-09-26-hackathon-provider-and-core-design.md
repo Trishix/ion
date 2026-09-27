@@ -15,13 +15,13 @@ This milestone optimizes for a working vertical slice. Durable detached sessions
 The milestone is complete when all of the following hold:
 
 1. `make setup` installs the locked project dependencies from a clean checkout without requiring an API key.
-2. `make run` launches the Textual TUI and reads the live credential only from `AI_API_KEY`.
+2. `make run` launches the Textual TUI. Locked evaluation reads the credential only from `AI_API_KEY`; product profiles may use their declared provider key with `AI_API_KEY` as fallback.
 3. The TUI accepts a repository path and text task, displays the active profile and model, and starts one coding task.
 4. The model can list and search repository files, read text, apply an exact preconditioned patch, run a bounded command, inspect the resulting diff, and request finalization.
 5. Ion reports `verified` only when a relevant successful command is tied to the final workspace fingerprint. Otherwise it reports an honest non-verified outcome and preserves the candidate patch.
 6. `make test` runs offline with a scripted provider and no credential.
-7. Development mode can use Groq with `openai/gpt-oss-120b` or another compatible user-selected text model.
-8. Evaluation mode locks the committee-prescribed provider and model, once announced, and prevents runtime substitution.
+7. Development mode defaults to Groq Qwen, with explicit profiles for OpenRouter Qwen/DeepSeek and direct APIs; compatible text models can be selected or configured.
+8. Evaluation mode locks the committee-prescribed provider and model, once the exact IDs and endpoint are confirmed, and prevents runtime substitution.
 
 ## Delivery boundary
 
@@ -54,17 +54,19 @@ The repository contains a nonsecret `ion.toml`. Credentials are never stored in 
 
 ```toml
 schema_version = 1
-default_profile = "groq-dev"
+default_profile = "groq-qwen-dev"
 
-[profiles.groq-dev]
+[profiles.groq-qwen-dev]
 provider = "groq"
 base_url = "https://api.groq.com/openai/v1"
-model = "openai/gpt-oss-120b"
-api_key_env = "AI_API_KEY"
+model = "qwen/qwen3.8-27b"
+api_key_env = "GROQ_API_KEY"
 protocol = "openai_chat"
 tool_protocol = "native"
 text_only = true
 locked = false
+context_window = 131072
+max_output_tokens = 4096
 
 [model_catalog]
 allow_runtime_discovery = true
@@ -73,7 +75,7 @@ require_text = true
 require_tools = true
 ```
 
-`AI_API_KEY` is the only credential name Ion consumes. A developer with a provider-specific variable maps it in the shell before launch, for example `AI_API_KEY="$GROQ_API_KEY" make run`.
+Product profiles read their declared provider-specific environment variable, with `AI_API_KEY` as fallback. Locked evaluation reads only `AI_API_KEY`, regardless of the profile's product credential name. No credential value is committed.
 
 No placeholder committee model or endpoint is committed as an official profile. When the committee announces them, the release change adds one complete locked profile and makes it the evaluation default. `make run` must then select that profile without asking the evaluator to edit configuration or choose a provider.
 

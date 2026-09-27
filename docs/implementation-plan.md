@@ -10,12 +10,25 @@
 
 **Spec:** [PRD](prd.md), [architecture](architecture.md), and canonical [interfaces-and-data](interfaces-and-data.md); subsystem specifications are linked from [README](README.md).
 
-This is the future runtime build plan. The current completed deliverable is documentation, not these runtime tasks. Commands below become executable as their corresponding files are implemented.
+This is the full runtime build plan. The foreground core and initial offline suite are implemented; the remaining P0 tasks below are still open. Commands below are acceptance targets only where their corresponding files exist.
+
+The approved first milestone is now detailed in the [hackathon core implementation plan](superpowers/plans/2026-09-26-hackathon-core.md), based on the [provider and core design](superpowers/specs/2026-09-26-hackathon-provider-and-core-design.md). Execute its four phases first; use the remaining tasks below for full v1 delivery. The foreground demonstration core does not yet satisfy the durable session, memory, or compaction requirements for competition readiness.
+
+## Current implementation checkpoint
+
+| Phase | Current state | Next acceptance work |
+| --- | --- | --- |
+| A — Foundation | Root Makefile, locked dependencies, typed records, TOML profiles, TUI shell, and offline tests implemented | Clean-checkout reproducibility and full configuration edge cases |
+| B — Provider path | OpenAI-compatible gateway, Groq and OpenRouter profiles, direct provider examples, `/models`, and `/doctor` implemented | Live credential probes for each intended provider and exact official model profile |
+| C — Coding loop | Guarded file edits, bounded commands, artifacts, request budget, and pytest evidence implemented | Broader task criteria and independent verification fixtures |
+| D — Product hardening | Run history persisted in SQLite; foreground TUI launches and exposes `/history` | Crash-safe operation journal, reconnection/resume, context compaction, repository memory, and complete P0 acceptance |
+
+These are implementation checkpoints, not claims that the full acceptance scenarios below have passed.
 
 ## Global constraints
 
 - Obey HK-01 through HK-13 and distinguish official requirements from POL policies and OPEN blockers in rules.md.
-- Read credentials only from AI_API_KEY; use the prescribed text-only model for every generative call.
+- In locked evaluation mode, read credentials only from AI_API_KEY and use the prescribed text-only model for every generative call. Product mode accepts a configured provider-specific environment variable with AI_API_KEY as fallback.
 - Preserve user changes; no automatic Git initialization, commit, stash, reset, push, or publish as a task side effect.
 - Keep one workspace writer, one session state writer, and bounded read-only workers.
 - Use the exact records, enums, TUI contracts, and defaults in interfaces-and-data.md.
