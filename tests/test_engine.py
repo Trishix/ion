@@ -13,6 +13,19 @@ from ion.tools.registry import ToolDispatcher
 from ion.workspace import Workspace, digest
 
 
+def test_output_focused_engine_does_not_reserve_verification(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    workspace = Workspace.capture(repo)
+    artifacts = ArtifactStore(tmp_path / ".ion-artifacts")
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+
+    engine = Engine(config, ScriptedProvider([]), dispatcher)
+
+    assert engine.budget.reserve_verification is False
+
+
 @pytest.mark.asyncio
 async def test_scripted_coding_loop_changes_file_and_verifies_relevant_check(tmp_path):
     repo = tmp_path / "repo"

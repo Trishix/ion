@@ -121,6 +121,44 @@ async def test_engine_recovers_once_from_repeated_reads_and_directs_edit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_engine_directs_an_edit_after_bounded_read_only_turns(tmp_path):
+    from pathlib import Path
+    from ion.config import load_config
+    from ion.contracts import ModelEvent
+    from ion.engine import Engine
+    from ion.providers.scripted import ScriptedProvider
+    from ion.processes import CommandSupervisor
+    from ion.tools.registry import ToolDispatcher
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for index in range(8):
+        (repo / f"file{index}.txt").write_text("old\n")
+    workspace = Workspace.capture(repo)
+    artifacts = ArtifactStore(tmp_path / "artifacts")
+    dispatcher = ToolDispatcher(workspace, artifacts, CommandSupervisor(workspace, artifacts))
+    turns = [
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": f"file{index}.txt"}, call_id=f"read-{index}"), ModelEvent(kind="completed")]
+        for index in range(8)
+    ]
+    turns.extend([
+        [ModelEvent(kind="tool_call", tool="edit_file", arguments={
+            "plan": "Apply the focused correction", "read_id": "r8", "old_text": "old", "new_text": "new", "done": True,
+        }, call_id="edit"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="tool_call", tool="finish_request", arguments={"summary": "Applied the focused correction"}, call_id="finish"), ModelEvent(kind="completed")],
+    ])
+    config = load_config(Path(__file__).resolve().parents[1] / "ion.toml")
+    provider = ScriptedProvider(turns)
+    engine = Engine(config, provider, dispatcher)
+
+    result = await engine.run(TaskSpec(text="Fix the repository", repo_path=str(repo), profile_name="openrouter-qwen-free"))
+
+    assert (repo / "file7.txt").read_text() == "new\n"
+    assert any(request.tool_choice == "edit_file" for request in provider.requests)
+    assert result.changed_files == ("file7.txt",)
+
+
+@pytest.mark.asyncio
 async def test_engine_recovers_repeated_reads_and_directs_file_deletion(tmp_path):
     from pathlib import Path
     from ion.config import load_config

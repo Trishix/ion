@@ -24,6 +24,8 @@ from ion.memory.retrieval import MemoryRetriever
 
 
 READ_ONLY_TOOLS = ('trace_symbol', 'infra_scan', 'web_search', 'repo_list', 'repo_search', 'file_outline', 'file_read', 'diff_summary', 'diff_inspect', 'artifact_search', 'artifact_read', 'finish_request')
+READ_ONLY_PROGRESS_TOOLS = frozenset(READ_ONLY_TOOLS) - {"finish_request"}
+MAX_READ_ONLY_EDIT_TURNS = 8
 
 
 class Engine:
@@ -32,7 +34,10 @@ class Engine:
         self.gateway = gateway
         self.dispatcher = dispatcher
         self.profile_override = profile_override
-        self.budget = BudgetLedger()
+        # Product and evaluation runs are output-focused. They may use the
+        # full request allowance while still reserving verification in the
+        # explicit bounded economy workflow below.
+        self.budget = BudgetLedger(reserve_verification=False)
         self.context = ContextManager()
         self.queue: asyncio.Queue[EngineEvent] = asyncio.Queue()
         self.cancelled = False
@@ -154,6 +159,7 @@ class Engine:
         recovered_tools: set[str] = set()
         read_cycle_recoveries = 0
         force_edit_after_read_cycle = False
+        read_only_turns = 0
         registered_tools = {item["function"]["name"] for item in (*tool_schemas(), *tool_schemas(("edit_file", "write_file", "delete_file")))}
         edit_phase_started = False
         expanded_output = bool(economy and edit_intent and re.search(r"\b(?:rewrite|replace|regenerate)\b", task.text, re.IGNORECASE))
@@ -234,6 +240,15 @@ class Engine:
                             intent = updated
                             edit_intent = intent == 'edit'
                     history.append({"role": "user", "content": "User steering: " + "\n".join(additions)})
+                if (edit_intent and not workspace.writes and read_only_turns >= MAX_READ_ONLY_EDIT_TURNS
+                        and self.dispatcher.reads and not force_edit_after_read_cycle):
+                    force_edit_after_read_cycle = True
+                    action_reminders = max(action_reminders, 1)
+                    progress_hint = (
+                        "Inspection has consumed the bounded read-only turn allowance. Stop listing and rereading files. "
+                        "Apply the smallest useful edit using an observed read_id, or report a concrete blocker with finish_request."
+                    )
+                    await self._emit(Phase.plan, "Read-only turns exhausted; directing the model to apply an observed edit")
                 phase = Phase.inspect if not self.dispatcher.reads else Phase.act
                 if edit_complete and self.dispatcher.allow_commands:
                     phase = Phase.verify
@@ -470,6 +485,10 @@ class Engine:
                         history.append({"role": "user", "content": "Return exactly one valid JSON action object."})
                         continue
                 if calls:
+                    if calls and all(call.tool in READ_ONLY_PROGRESS_TOOLS for call in calls):
+                        read_only_turns += 1
+                    else:
+                        read_only_turns = 0
                     signature = json.dumps([(call.tool, call.arguments) for call in calls], sort_keys=True, separators=(",", ":"))
                     # Rejected calls made no progress because they never ran. Let
                     # availability recovery handle them, not the execution loop guard.
@@ -687,6 +706,7 @@ class Engine:
                             creation_navigation_ready = True
                         elif call.tool in {"patch_apply", "edit_file", "write_file", "delete_file"} and result.status == OperationStatus.succeeded:
                             force_edit_after_read_cycle = False
+                            read_only_turns = 0
                             edit_complete = bool(result.data.get("done"))
                             progress_hint = "Requested file change applied. Inspect the diff and run a relevant check. Do not repeat the same action. Finish with an honest result."
                             if economy:
