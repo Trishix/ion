@@ -90,7 +90,7 @@ def tool_schemas(names: tuple[str, ...] | None = None) -> tuple[dict[str, Any], 
                 "run_linter": "Run installed project linter; optional path",
                 "repo_list": "List repository text files",
                 "repo_search": "Find literal text; returned offsets can be passed to file_read. Optionally narrow relative_path.",
-                "file_read": "Read up to 4000 characters and full-file SHA-256; use next_offset to read more",
+                "file_read": "Read a bounded text page and full-file SHA-256; use next_offset to read more",
                 "file_outline": "List up to 80 source section line ranges without source bodies",
                 "patch_apply": "Replace exact old_text with new_text, requiring expected_hash for each file",
                 "command_start": "Run a bounded repository command",
@@ -120,7 +120,7 @@ def tool_schemas(names: tuple[str, ...] | None = None) -> tuple[dict[str, Any], 
         for schema in schemas:
             function = schema["function"]
             if function["name"] == "file_read":
-                function["description"] = "Read text and read_id; offset/limit select a page (default 4000, max 16000). Read all pages before whole-file rewrite."
+                function["description"] = "Read text and read_id; offset/limit select a page (controller-selected default, max 16000). Read all pages before whole-file rewrite."
             elif function["name"] == "finish_request":
                 function["description"] = "Finish with a read-only answer or an honest blocker."
     edit = {
@@ -185,6 +185,12 @@ class ToolDispatcher:
         self.results: dict[str, ToolResult] = {}
         self.reads: dict[str, tuple[str, str, int, str]] = {}
         self.visible_write_reads: dict[str, tuple[str, str, int, str]] | None = None
+        self.read_page_limit = 4000
+
+    def set_read_page_limit(self, limit: int) -> None:
+        if type(limit) is not int or not 256 <= limit <= 16000:
+            raise ValueError("read page limit must be an integer between 256 and 16000")
+        self.read_page_limit = limit
 
     @property
     def observed_page_count(self) -> int:
@@ -335,7 +341,7 @@ class ToolDispatcher:
                 raw = path.read_bytes()
                 text = raw.decode("utf-8")
                 data = {"path": args["relative_path"], "sha256": digest(raw), "total_chars": len(text),
-                        **self._page(text, args.get("offset", 0), args.get("limit", 4000))}
+                        **self._page(text, args.get("offset", 0), args.get("limit", self.read_page_limit))}
                 read_id = f"r{len(self.reads) + 1}"
                 self.reads[read_id] = (path.relative_to(self.workspace.root).as_posix(), data["sha256"], data["offset"], data["text"])
                 data["read_id"] = read_id

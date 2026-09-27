@@ -172,6 +172,10 @@ class Engine:
         last_cap: int | None = None
         last_protected = 0
         invalid_argument_failures = 0
+        tool_preview_chars = (self.config.economy.max_tool_preview_chars if economy else
+                              self.config.economy.output_focused_read_page_chars)
+        read_page_chars = (4000 if economy else self.config.economy.output_focused_read_page_chars)
+        self.dispatcher.set_read_page_limit(read_page_chars)
         configured_tiers = {
             WorkClass.inspect: self.config.economy.inspect_output_tokens,
             WorkClass.edit: self.config.economy.edit_output_tokens,
@@ -586,7 +590,7 @@ class Engine:
                             self._diagnose("tool.result", tool=call.tool, status=result.status.value,
                                            error=result.error)
                             response = self._tool_response(result, economy=economy,
-                                                           max_chars=self.config.economy.max_tool_preview_chars)
+                                                           max_chars=tool_preview_chars)
                             if profile.tool_protocol == "native":
                                 history.append({"role": "tool", "tool_call_id": event.call_id, "content": response})
                             else:
@@ -626,7 +630,7 @@ class Engine:
                             if self.pending_steering:
                                 result = await self.dispatcher.execute(call)
                                 response = self._tool_response(result, economy=economy,
-                                                               max_chars=self.config.economy.max_tool_preview_chars)
+                                                               max_chars=tool_preview_chars)
                                 if profile.tool_protocol == "native":
                                     history.append({"role": "tool", "tool_call_id": event.call_id, "content": response})
                                 else:
@@ -780,7 +784,7 @@ class Engine:
                             if record:
                                 records.append(record)
                         response = self._tool_response(result, economy=economy,
-                                                       max_chars=self.config.economy.max_tool_preview_chars)
+                                                       max_chars=tool_preview_chars)
                         if profile.tool_protocol == "native":
                             history.append({"role": "tool", "tool_call_id": event.call_id, "content": response})
                         else:

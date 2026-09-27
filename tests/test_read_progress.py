@@ -43,7 +43,10 @@ async def test_equivalent_reads_stop_without_identical_tool_sequences(tmp_path):
 
 @pytest.mark.asyncio
 async def test_distinct_pages_remain_available_for_patch_context(tmp_path):
-    provider, result = await run_reads(tmp_path, [{'relative_path': 'README.md'}, {'relative_path': 'README.md', 'offset': 4000}])
+    provider, result = await run_reads(tmp_path, [
+        {'relative_path': 'README.md', 'limit': 4000},
+        {'relative_path': 'README.md', 'offset': 4000, 'limit': 4000},
+    ])
     bodies = [json.loads(m['content']).get('data', {}).get('text') for m in provider.requests[-1].messages if m['role'] == 'tool']
     assert 'a' * 4000 in bodies
     assert 'b' * 4000 in bodies

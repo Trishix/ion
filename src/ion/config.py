@@ -26,6 +26,7 @@ class EconomyConfig(BaseModel):
     verification_reserve_tokens: int = Field(default=256, ge=0)
     finalization_reserve_tokens: int = Field(default=256, ge=0)
     max_tool_preview_chars: int = Field(default=4000, ge=256, le=16000)
+    output_focused_read_page_chars: int = Field(default=12000, ge=4000, le=16000)
     compaction_recoveries: Literal[1] = 1
 
     @model_validator(mode="before")

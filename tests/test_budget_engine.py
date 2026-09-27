@@ -319,6 +319,56 @@ def test_reviewed_preview_config_name_accepts_validated_value():
     assert config.tool_preview_max_chars == 256
     with pytest.raises(ValueError):
         EconomyConfig(max_tool_preview_chars=255)
+    with pytest.raises(ValueError):
+        EconomyConfig(output_focused_read_page_chars=3999)
+    with pytest.raises(ValueError):
+        EconomyConfig(output_focused_read_page_chars=16001)
+
+
+@pytest.mark.asyncio
+async def test_output_focused_reads_use_configured_page_offsets(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "large.txt"}, call_id="read"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="error", error="provider quota exhausted")],
+    ])
+    engine, repo = _engine(
+        tmp_path,
+        provider,
+        files={"large.txt": "A" * 20000},
+        economy_fields={"enabled": False, "output_focused_read_page_chars": 12000},
+    )
+
+    await engine.run(TaskSpec(text="Inspect the repository", repo_path=str(repo),
+                              profile_name=engine.config.default_profile))
+
+    result_message = next(message for message in provider.requests[1].messages if message.get("tool_call_id") == "read")
+    data = json.loads(result_message["content"])["data"]
+    assert len(data["text"]) == 12000
+    assert data["offset"] == 0
+    assert data["next_offset"] == 12000
+    assert data["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_output_focused_reads_keep_explicit_smaller_limits(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "large.txt", "limit": 256}, call_id="read"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="error", error="provider quota exhausted")],
+    ])
+    engine, repo = _engine(
+        tmp_path,
+        provider,
+        files={"large.txt": "A" * 20000},
+        economy_fields={"enabled": False, "output_focused_read_page_chars": 12000},
+    )
+
+    await engine.run(TaskSpec(text="Inspect the repository", repo_path=str(repo),
+                              profile_name=engine.config.default_profile))
+
+    result_message = next(message for message in provider.requests[1].messages if message.get("tool_call_id") == "read")
+    data = json.loads(result_message["content"])["data"]
+    assert len(data["text"]) == 256
+    assert data["next_offset"] == 256
 
 
 @pytest.mark.asyncio
