@@ -20,30 +20,80 @@ GROQ_FREE_PLAN = {
 class CatalogResult:
     entries: tuple[ModelInfo, ...]
     status: str
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class QuotaResult:
+    status: str
+    remaining: int | None = None
+    limit: int | None = None
+    detail: str = ""
 
 
 class ModelCatalog:
-    def __init__(self, credential: str, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(self, credential: str, transport: httpx.AsyncBaseTransport | None = None, cache_ttl_seconds: int = 300) -> None:
         self.credential = credential
         self.transport = transport
+        self.cache_ttl_seconds = cache_ttl_seconds
         self.cache: dict[str, tuple[float, CatalogResult]] = {}
+        self.quota_cache: dict[str, tuple[float, QuotaResult]] = {}
 
     async def list(self, profile: ModelProfile, refresh: bool = False) -> CatalogResult:
         key = profile.endpoint
-        if not refresh and key in self.cache and monotonic() - self.cache[key][0] < 300:
+        if not refresh and key in self.cache and monotonic() - self.cache[key][0] < self.cache_ttl_seconds:
             return self.cache[key][1]
         try:
             async with httpx.AsyncClient(base_url=key.rstrip("/") + "/", transport=self.transport, follow_redirects=False, timeout=10) as client:
                 response = await client.get("models", headers={"Authorization": f"Bearer {self.credential}"})
-            response.raise_for_status()
+            if response.status_code == 401:
+                return CatalogResult((), "authentication_failed", "API key rejected")
+            if response.status_code == 403:
+                return CatalogResult((), "access_denied", "API key lacks catalog access")
+            if response.status_code == 429:
+                return CatalogResult((), "rate_limited", "Model catalog rate limited")
+            if response.status_code >= 400:
+                return CatalogResult((), "provider_error", f"Model catalog returned HTTP {response.status_code}")
             payload = response.json()
             entries = tuple(self._parse(profile, item) for item in payload["data"] if isinstance(item, dict) and isinstance(item.get("id"), str))
-            result = CatalogResult(entries, "available" if entries else "empty")
-        except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            result = CatalogResult((), "unavailable")
+            result = CatalogResult(entries, "available" if entries else "empty", "" if entries else "Provider returned an empty model catalog")
+        except httpx.TimeoutException:
+            result = CatalogResult((), "timeout", "Model catalog request timed out")
+        except httpx.ConnectError:
+            result = CatalogResult((), "connection_failed", "Could not connect to the model catalog")
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            result = CatalogResult((), "invalid_response", "Provider returned an invalid model catalog")
         if result.status == "available":
             self.cache[key] = (monotonic(), result)
         return result
+
+    async def quota(self, profile: ModelProfile, refresh: bool = False) -> QuotaResult:
+        if profile.provider != "openrouter":
+            return QuotaResult("unsupported", detail="Provider does not expose a compatible quota endpoint")
+        key = profile.endpoint
+        if not refresh and key in self.quota_cache and monotonic() - self.quota_cache[key][0] < min(self.cache_ttl_seconds, 60):
+            return self.quota_cache[key][1]
+        try:
+            async with httpx.AsyncClient(base_url=key.rstrip("/") + "/", transport=self.transport, follow_redirects=False, timeout=10) as client:
+                response = await client.get("key", headers={"Authorization": f"Bearer {self.credential}"})
+            if response.status_code == 401:
+                return QuotaResult("authentication_failed", detail="API key rejected")
+            if response.status_code != 200:
+                return QuotaResult("unavailable", detail=f"Quota endpoint returned HTTP {response.status_code}")
+            data = response.json().get("data", {})
+            free = data.get("free_model_daily_requests") or {}
+            remaining, limit = free.get("remaining"), free.get("limit")
+            if not isinstance(remaining, int) or not isinstance(limit, int):
+                return QuotaResult("unavailable", detail="Quota response omitted free-model limits")
+            result = QuotaResult("available", remaining=remaining, limit=limit)
+            self.quota_cache[key] = (monotonic(), result)
+            return result
+        except httpx.TimeoutException:
+            return QuotaResult("timeout", detail="Quota request timed out")
+        except httpx.ConnectError:
+            return QuotaResult("connection_failed", detail="Could not connect to the quota endpoint")
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            return QuotaResult("invalid_response", detail="Provider returned an invalid quota response")
 
     def _parse(self, profile: ModelProfile, item: dict) -> ModelInfo:
         model_id = item["id"]
@@ -66,7 +116,7 @@ class ModelCatalog:
         free = None
         if profile.provider == "openrouter":
             try:
-                free = model_id.endswith(":free") and Decimal(str(pricing["prompt"])) == 0 and Decimal(str(pricing["completion"])) == 0
+                free = Decimal(str(pricing["prompt"])) == 0 and Decimal(str(pricing["completion"])) == 0
             except (InvalidOperation, KeyError, TypeError):
                 free = None
         is_configured = model_id == profile.model_id
