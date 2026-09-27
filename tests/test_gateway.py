@@ -36,3 +36,14 @@ async def test_provider_auth_error_hides_response_body():
     events = [item async for item in OpenAICompatibleProvider(profile, "fixture-key", transport).generate(request)]
     assert events[0].kind == "error"
     assert "fixture-key" not in events[0].error
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_exposes_retry_after_without_provider_body():
+    profile = resolve_profile(load_config(Path(__file__).resolve().parents[1] / "ion.toml"), "groq-qwen-dev", "product")
+    transport = httpx.MockTransport(lambda _: httpx.Response(429, headers={"retry-after": "7"}, text="private provider details"))
+    request = ModelRequest(messages=({"role": "user", "content": "Hello"},), max_output_tokens=100, profile_digest="fixture")
+    events = [item async for item in OpenAICompatibleProvider(profile, "fixture-key", transport).generate(request)]
+    assert events[0].error == "provider rate limit"
+    assert events[0].retry_after_seconds == 7
+    assert "private provider details" not in str(events[0])

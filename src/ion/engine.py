@@ -81,6 +81,7 @@ class Engine:
                 text_parts: list[str] = []
                 calls: list[ModelEvent] = []
                 error = None
+                retry_after_seconds: float | None = None
                 async for event in self.gateway.generate(request):
                     if event.kind == "text_delta":
                         text_parts.append(event.text)
@@ -88,10 +89,16 @@ class Engine:
                         calls.append(event)
                     elif event.kind == "error":
                         error = event.error or "provider error"
+                        retry_after_seconds = event.retry_after_seconds
                 if error:
                     if error == "provider rate limit" and rate_limit_retries < 2:
+                        retry_seconds = retry_after_seconds if retry_after_seconds is not None else float(rate_limit_retries + 1)
+                        if retry_seconds > 30:
+                            summary = f"Provider rate limit; retry after about {int(retry_seconds)} seconds"
+                            outcome = Outcome.failed
+                            break
                         rate_limit_retries += 1
-                        delay = rate_limit_retries
+                        delay = max(1, int(retry_seconds + 0.999))
                         await self._emit(Phase.act, f"Provider rate limit; retrying in {delay}s")
                         await asyncio.sleep(delay)
                         continue

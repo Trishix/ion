@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from math import isfinite
 from typing import AsyncIterator
 
 import httpx
@@ -45,7 +46,13 @@ class OpenAICompatibleProvider:
                 yield ModelEvent(kind="error", error="provider authentication failed")
                 return
             if response.status_code == 429:
-                yield ModelEvent(kind="error", error="provider rate limit")
+                try:
+                    retry_after = float(response.headers.get("retry-after", ""))
+                    if not isfinite(retry_after) or retry_after < 0:
+                        retry_after = None
+                except ValueError:
+                    retry_after = None
+                yield ModelEvent(kind="error", error="provider rate limit", retry_after_seconds=retry_after)
                 return
             response.raise_for_status()
             payload = response.json()

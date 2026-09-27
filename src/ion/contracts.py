@@ -165,6 +165,7 @@ class ModelEvent(StrictModel):
     call_id: str | None = None
     usage: dict[str, int] | None = None
     error: str | None = None
+    retry_after_seconds: float | None = Field(default=None, ge=0)
 
 
 class ModelInfo(StrictModel):
