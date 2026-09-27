@@ -1,105 +1,115 @@
 # Ion
 
+Ion is a local, terminal-based coding agent. Give it a task in its Textual interface; it inspects the current repository, makes guarded changes, runs bounded checks, and reports what changed and what it verified.
 
+## What Ion does
 
-Ion is a terminal coding harness for the AI Harness Hackathon 2026. It reads text tasks, inspects local repositories, applies guarded edits, runs bounded commands, and reports changed files with verification evidence.
+Ion connects a configured language model to a local coding workflow. It keeps repository access and task execution under the harness, while sending selected task context and source text to the provider you choose.
 
-## Start
+Features include:
 
-Requires a terminal and Python 3.12 or newer. From this repository:
+- Output-aware token budgets that reserve room for useful edits, checks, and a final response.
+- Progressive, bounded tools for repository search, paged reads, edits, artifact lookup, and change summaries.
+- Path and hash checks that reject stale or out-of-workspace edits.
+- Bounded command execution with retained output and verification evidence.
+- Session and operation records that support inspection and cautious recovery without replaying old side effects.
+- A terminal workbench for task input, steering, model selection, diagnostics, and review of changes.
+
+## Why use Ion
+
+Ion is designed to keep small coding tasks focused: name a file and desired behavior, let Ion gather only the needed context, then review its diff and verification result. Context selection trims optional information before required task details, and the tool set grows only when the task has evidence that needs it. The budget view and result distinguish a prompt that cannot fit from an exhausted request or token limit.
+
+Ion is a local harness, not an operating-system sandbox. See [Security](docs/security.md) before using it with repositories or commands you do not trust.
+
+## Get started
+
+### Requirements
+
+- Python 3.12 or 3.13
+- `make`
+- An API key for one of the configured providers
+- An interactive terminal
+
+The setup target bootstraps `uv` if needed, then installs the locked project environment.
+
+### Install and configure
 
 ```sh
+git clone https://github.com/Trishix/ion.git
+cd ion
 make setup
-export OPENROUTER_API_KEY="<your key>"
+cp .env.example .env
+```
+
+Add the key for your selected provider to `.env`. The default profile is `openrouter-coding-free`:
+
+```dotenv
+OPENROUTER_API_KEY=your-key
+```
+
+You can set the key in your shell instead. Ion does not replace an environment variable that is already set. Never commit `.env` or put key values in `ion.toml`.
+
+### Launch Ion
+
+To work on the Ion checkout itself, launch from its directory:
+
+```sh
 make run
 ```
 
-The default development profile is `openrouter-coding-free` (Cohere North Mini Code via OpenRouter), which completed a live small bug-fix test. Launch `ion` from the repository you want to edit; that directory becomes the immutable workspace for the process. `/doctor` checks the active credential, endpoint, model, tool support, live limits, and OpenRouter free quota. `/logs` shows the recent internal request, tool, and budget sequence. `/models` lists profiles and, when a key is available, discovers selectable provider models. `/history` shows saved runs; `/inspect TASK_ID` shows their details. `/steer TEXT` adds an instruction to a running task at its next model turn. `make test` runs the offline suite. `make clean` removes disposable build and test caches.
+Ion treats the directory where it starts as the workspace. To work on another repository, keep the Ion checkout installed and launch its console command from the target repository:
 
-## Terminal interface
+```sh
+cd /path/to/your/project
+uv run --project /path/to/ion ion
+```
 
-Ion uses a compact workbench layout built around a task dock, session timeline, and run-state rail. The interface is designed for JetBrains Mono; select that font in your terminal profile before launching Ion. Textual inherits the terminal emulator's active font and cannot replace it from application CSS.
+Replace `/path/to/ion` with the location where you cloned Ion. The target repository remains the current working directory and becomes Ion’s workspace.
 
-| Action | Shortcut / command |
+Enter a specific task, for example:
+
+> In `src/parser.py`, fix the reported off-by-one error. Add a regression test, run the focused test, and summarize the diff.
+
+Use `/help` in the interface to see commands. Common commands include `/models`, `/connect`, `/doctor`, `/sessions`, `/resume TASK_ID`, and `/logs`. Press Enter to send a task; use Shift+Enter for a newline. `/doctor` checks the selected profile and, when credentials are available, its live provider and model capabilities.
+
+## Providers and configuration
+
+Profiles live in [ion.toml](ion.toml). The checked-in examples use these credential variables:
+
+| Profiles | Environment variable |
 | --- | --- |
-| Send task / steer a running task | Enter |
-| Insert newline | Shift+Enter or Ctrl+J |
-| Search commands | Ctrl+P or `/help` |
-| Choose model | Ctrl+X, then M or `/models` |
-| Show locked workspace | Sidebar or bottom status bar |
-| Connect a configured provider | `/connect` |
-| Inspect saved tasks | `/sessions` or `/history` |
-| New task view | Ctrl+N or `/new` |
-| Toggle context sidebar | Ctrl+B |
-| Cancel active task | Escape |
-| Quit | Ctrl+Q |
-
-The sidebar hides automatically in narrow terminals. Session transcripts and highlighted diffs reflow when the terminal is resized. Sessions are journaled for inspection and `/resume TASK_ID` performs recovery checks before preparing a safe re-submission; it never replays an old mutation. Each submitted task starts a foreground engine run; messages sent while it is running are steering instructions.
-
-`/connect` offers the providers configured in `ion.toml`. Its masked input keeps the key in the current process only and does not write credentials to disk. Catalog access or the next request checks whether the key works. Existing environment configuration remains available. OAuth and additional provider protocols are separate work; matching the dialog layout does not add those capabilities.
-
-## Choose a provider
-
-The committed [ion.toml](ion.toml) contains Groq Qwen, OpenRouter coding, Qwen, and free-router profiles, plus direct DeepSeek and Qwen API examples. Export the matching key:
-
-| Profile | Credential |
-| --- | --- |
-| `groq-qwen-dev` | `GROQ_API_KEY` |
 | `openrouter-coding-free`, `openrouter-qwen-free`, `openrouter-free-router` | `OPENROUTER_API_KEY` |
+| `groq-qwen-dev` | `GROQ_API_KEY` |
 | `deepseek-direct` | `DEEPSEEK_API_KEY` |
 | `qwen-direct` | `DASHSCOPE_API_KEY` |
 
-The direct provider APIs may require a paid account. A `:free` OpenRouter model is subject to provider availability and rate limits. Catalog availability is checked live; these profiles are examples, not a promise that every model remains free or available.
+Provider catalogs, model availability, and free-tier quotas can change. Check the current profile with `/doctor`; a profile name does not guarantee that a provider will offer a model or free quota at all times.
 
-For local use, copy `.env.example` to `.env` beside the active `ion.toml` and fill in the key for the provider you selected. Ion loads that file without overriding environment variables already set by the shell. Set `ION_ENV_FILE` to use a different local file. Locked evaluation mode skips dotenv and reads only the externally provided `AI_API_KEY`.
+To use a separate configuration file, set `ION_CONFIG=/path/to/ion.toml`. By default, Ion loads `.env` beside the active configuration file; set `ION_ENV_FILE` to use another environment file. See [interfaces and data](docs/interfaces-and-data.md) for configuration fields.
 
-To connect another OpenAI compatible text model, create a TOML file outside the target repository with `schema_version = 1`, `default_profile`, and a `[profiles.NAME]` section. Specify `provider`, `base_url` (HTTPS), `model`, `api_key_env`, `protocol = "openai_chat"`, `tool_protocol = "native"` or `"structured_json"`, `text_only = true`, `locked = false`, `context_window`, and `max_output_tokens`. Launch with `ION_CONFIG=/path/to/your.toml make run`. A provider specific key is preferred; `AI_API_KEY` is the fallback in normal use. Never place key values in TOML or Git.
+## Development
 
-## Small tasks and token budget
+```sh
+make setup
+make test
+```
 
-Restart Ion after changing `.env` or the default profile. Start with a specific task naming the file and expected behavior. The currently running TUI retains its selected model until you change it through `/models` or restart.
+`make test` runs the offline test suite. See the [agile delivery guide](docs/agile.md) for contribution expectations and validation practices.
 
-Product runs default to economy mode: **read → brief plan + edit → bounded check → final diff and evidence**. The TUI enables eight tools, including the policy-checked command runner:
+## Help and documentation
 
-| Tool | Purpose |
-| --- | --- |
-| `repo_list` | List files within a directory, with pagination |
-| `repo_search` | Find literal text with a path filter and source offsets |
-| `file_read` | Read a bounded page and obtain a guarded read ID; optional `limit` up to 16,000 characters |
-| `edit_file` | Apply an exact replacement in observed text |
-| `write_file` | Create a file (including missing directories), or rewrite a fully read file without repeating old text |
-| `diff_inspect` | Inspect accumulated changes when needed |
-| `command_start` | Run one bounded repository check with a clean environment and retained output artifact |
-| `finish_request` | Finish or report a blocker honestly |
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Execution and tools](docs/execution-and-tools.md)
+- [Task lifecycle, recovery, and verification](docs/task-lifecycle-and-verification.md)
+- [Context management](docs/context-management.md)
+- [Security and trust boundaries](docs/security.md)
+- [Open an issue](https://github.com/Trishix/ion/issues)
 
-Both edit tools require a short plan, displayed before execution. `done=true` ends a successful edit without another model request; use `done=false` to continue across files. Reads and searches stay available after edits. Existing files require current read IDs; whole-file replacement also requires reading all pages first. Hash checks reject stale edits and creation never overwrites an existing file. File deletion is unavailable. Product mode permits one bounded command at a time; destructive commands, shell chains, redirection, private files, and API-key environment variables are rejected.
+## Maintainers and contributions
 
-For a task naming one existing file, Ion can inspect up to 12,000 characters locally before its first model request, provided the source fits the context budget. An explicit whole-file rewrite with complete observed source directs native tool selection to `write_file`. This removes model calls spent locating and rereading a known target. Larger files and tasks across files keep normal paginated inspection. If the provider rejects directed selection, Ion makes one attempt using automatic selection.
+Ion is maintained in the [Trishix/ion repository](https://github.com/Trishix/ion). Bug reports, focused fixes, and documentation improvements are welcome through issues and pull requests. Keep changes reviewable, add a focused regression test for behavior changes, and update the relevant reference documentation; the [agile delivery guide](docs/agile.md) has the project workflow.
 
-The workspace is captured from the launch process's current directory and cannot be changed through `/repo` or `ION_REPO`. File tools reject absolute paths, parent traversal, and symlink targets. Commands run in that workspace with a filtered environment and process-group cleanup; they cannot access files outside it through the harness.
+## Data and safety
 
-Search supports an optional `relative_path` and returns character offsets for reading the surrounding code directly. A command only verifies a task when its output identifies a relevant passing check and the final workspace fingerprint is unchanged. Diff capture records what changed; it does not prove correctness.
-
-Diagnostics are appended to `$ION_DATA_DIR/logs/ion.jsonl`, defaulting to `~/.local/share/ion/logs/ion.jsonl`, and rotate at 2 MB. They include phases, offered tool names, token accounting, safe path/offset metadata, tool status, retries, and outcomes. They exclude credentials, prompts, search text, source text, patch contents, and model tool arguments. Use `/logs` or `/debug` in the TUI to inspect the latest events.
-
-Configure `[economy]` in `ion.toml`: `enabled = true`, `max_requests = 12`, `max_total_tokens = 24000`. Each request reserves estimated input plus its output cap; complete provider usage replaces that reservation when available. This is an estimated admission limit, not an exact tokenizer or provider billing ceiling. Failed requests and retries consume budget. One repair attempt is allowed for invalid actions/tool failures, and at most one consecutive rate-limit retry. Saved results include request counts, reported input/output tokens, and accounted tokens. Set `enabled = false` to restore the legacy tool workflow; locked evaluation mode uses that workflow independently.
-
-The default coding profile allows up to 4,096 output tokens. Economy requests start at 1,024 tokens before reading and 2,048 afterward, bounded by the profile limit; explicit rewrites start at the full profile limit. A truncated response triggers one retry at the profile limit; partial tool calls are never executed. Provider usage is retained even when an action is truncated or malformed. Logs include the stop reason and reported reasoning-token count. Every profile defaults to an estimated 6,000 input tokens per request, including tool schemas; customize `input_budget_tokens` in trusted TOML if needed. Estimates use serialized character counts, not a model-specific tokenizer. Older complete tool turns are dropped together; pinned task instructions and the latest tool turn are retained. Oversized required context stops the task instead of silently dropping instructions.
-
-To spend provider quota on an isolated live check, run `uv run python scripts/smoke_economy.py` from the Ion source checkout. It submits the exact task `rewrite the readme` against a temporary README copy, prints safe diagnostic events, and leaves the working repository untouched.
-
-Ion keeps bounded working memory in each run's artifact directory and stores reusable, source-linked repository memory in its local data directory. Compacted prompts receive pointers instead of replaying old source/log output; stale file references are marked for rereading. Repeated tool cycles trigger a warning after three repetitions and stop after four without workspace progress. See [context management](docs/context-management.md) and [memory architecture](docs/memory-architecture.md) for the runtime contracts.
-
-File reads return 4,000-character pages; economy prompts receive a short read ID instead of the full-file hash. Listing/search results and command feedback are bounded. Economy runs use the limits above; legacy runs have a 24-request ceiling including a verification reserve. Both have a ten-minute admission deadline. The activity view shows request counts and token usage. Free endpoints can still be rate limited; changing providers or models requires explicit selection.
-
-File-read activity includes the path and character offset. Equivalent reads of the same unchanged page are counted even when the model varies its call arguments. The controller supplies the next-page offset and directs the model toward a patch; five reads of the same unchanged page stop the run. Older duplicate page bodies and obsolete file versions are replaced with metadata, while distinct pages remain available within the context budget.
-
-Live smoke result (2026-09-27): the default model fixed subtraction to addition in a disposable Python repository via the TUI Run button, preserved all tests, and passed three tests. Ion returned `verified` with one verification record. That run used eight requests and reported 5,804 input / 698 output tokens. This establishes a small-task baseline, not general issue-solving reliability. The verification observer recognizes focused pytest, unittest, npm/pnpm/yarn, cargo, and go checks; documentation-only edits remain unverified unless a relevant executable check exists.
-
-## Hackathon evaluation
-
-The Makefile exposes `make setup`, `make run`, `make test`, and `make clean`. The evaluator can export `AI_API_KEY` before launch. Once the committee gives the exact provider, model, and endpoint, add a profile with `locked = true` and set `evaluation_profile = "NAME"` in `ion.toml`. That mode reads **only** `AI_API_KEY` and disables model switching. The announcement reported Qwen and DeepSeek model families; the exact official model IDs and credential provider are still required to freeze an evaluation profile. The project does not claim official submission readiness until those are confirmed and a live end to end run succeeds.
-
-Ion executes repository commands on the local machine. Use it on repositories you trust. Tool output, patches, and run history are retained under the user's Ion data directory. The foreground TUI records operation intent before dispatch, uses a durable workspace admission claim, exposes reconnectable session event primitives, and wires source-linked memory plus atomic compaction checkpoints into runs. Detached client-independent execution remains a future increment; current runs stay attached to the foreground TUI. See the [agile delivery guide](docs/agile.md) and [hackathon rules](docs/rules.md) for the remaining release gates.
-
-See [the product documentation](docs/README.md), [hackathon rules](docs/rules.md), and [architecture](docs/architecture.md).
+Ion sends the task and selected repository context to the configured model provider. Session records, diagnostics, and artifacts are stored locally under `$ION_DATA_DIR`, or by default under `~/.local/share/ion` (respecting `XDG_DATA_HOME`). Local data is not encrypted at rest in this version. Commands run with the local user’s privileges, so use Ion with repositories and commands you trust. See [Security](docs/security.md) for the limits of the current protections.
