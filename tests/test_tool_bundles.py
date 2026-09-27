@@ -161,6 +161,7 @@ async def test_diff_inspect_retains_patch_without_echoing_body(tmp_path):
     assert "app.py" in inspected.data["changed_files"]
     assert "-before" not in str(inspected.data)
     assert "+after" not in str(inspected.data)
+    assert inspected.data["truncated"] is False
     assert b"+after" in artifacts.read(inspected.data["patch_artifact_id"])
 
 

@@ -81,7 +81,7 @@ class MemoryStore:
         ).fetchall()
         now = datetime.now(timezone.utc)
         matches = [self._record(row) for row in rows
-                   if (not row[10] or datetime.fromisoformat(row[10]) > now)
+                   if self._is_current(row, now)
                    and all(term in (row[3] + " " + row[2]).lower() for term in terms)]
         return matches[: max(1, min(budget, 100))]
 
@@ -93,7 +93,7 @@ class MemoryStore:
             (scope, max(1, min(budget, 100))),
         ).fetchall()
         now = datetime.now(timezone.utc)
-        return [self._record(row) for row in rows if not row[10] or datetime.fromisoformat(row[10]) > now]
+        return [self._record(row) for row in rows if self._is_current(row, now)]
 
     def invalidate(self, source_ref: str) -> int:
         rows = self.connection.execute("SELECT memory_id, source_refs_json FROM memories WHERE status = 'active'").fetchall()
@@ -111,13 +111,26 @@ class MemoryStore:
         self.connection.close()
 
     @staticmethod
+    def _is_current(row: tuple, now: datetime) -> bool:
+        valid_from = MemoryStore._parse_time(row[9])
+        valid_until = MemoryStore._parse_time(row[10])
+        return (valid_from is None or valid_from <= now) and (valid_until is None or valid_until > now)
+
+    @staticmethod
+    def _parse_time(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @staticmethod
     def _record(row: tuple) -> MemoryRecord:
         (_, scope, fact_key, text, evidence_kind, status, refs, hashes, observed, valid_from, valid_until, supersedes_id, version) = row
         return MemoryRecord(
             memory_id=row[0], scope=scope, fact_key=fact_key, text=text, evidence_kind=evidence_kind, status=status,
             source_refs=tuple(json.loads(refs)), supporting_hashes=tuple(json.loads(hashes)),
-            observed_at=datetime.fromisoformat(observed),
-            valid_from=datetime.fromisoformat(valid_from) if valid_from else None,
-            valid_until=datetime.fromisoformat(valid_until) if valid_until else None,
+            observed_at=MemoryStore._parse_time(observed),
+            valid_from=MemoryStore._parse_time(valid_from),
+            valid_until=MemoryStore._parse_time(valid_until),
             supersedes_id=supersedes_id, extraction_version=version,
         )

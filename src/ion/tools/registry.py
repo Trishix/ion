@@ -356,7 +356,7 @@ class ToolDispatcher:
                 data = {"changed_files": changes.changed_files, "attributable_files": changes.attributable_files,
                         "external_files": changes.external_files, "ambiguous_files": changes.ambiguous_files,
                         "patch_artifact_id": artifact.artifact_id if artifact else None,
-                        "patch_bytes": len(patch), "truncated": bool(patch)}
+                        "patch_bytes": len(patch), "truncated": False}
             elif name == "diff_summary":
                 data = self._diff_summary(args.get("relative_paths", ()))
             elif name == "artifact_read":

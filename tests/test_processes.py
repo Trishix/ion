@@ -13,4 +13,10 @@ async def test_command_supervisor_rejects_destructive_shell_and_keeps_api_keys_o
         await supervisor.run("rm -rf .")
     with pytest.raises(ValueError, match="execution policy"):
         await supervisor.run("python -m pytest -q && echo done")
+    with pytest.raises(ValueError, match="execution policy"):
+        await supervisor.run("echo safe; echo bypass")
+    with pytest.raises(ValueError, match="execution policy"):
+        await supervisor.run("echo $(printf leaked)")
+    with pytest.raises(ValueError, match="execution policy"):
+        await supervisor.run("echo `printf leaked`")
     await supervisor.close()

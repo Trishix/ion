@@ -39,6 +39,8 @@ class Compactor:
         effective = tuple(item.strip() for item in constraints if item.strip())
         pinned = "Task: " + task_text.strip() + "\nEffective constraints: " + ("; ".join(effective) or "none")
         full_summary = pinned + "\n" + summary.strip()
+        if len(full_summary) > 12000:
+            raise ValueError("compaction checkpoint exceeds bounded size")
         digest = hashlib.sha256("\n".join(effective).encode()).hexdigest()
         checkpoint = ContextCheckpoint(
             session_id=session_id,

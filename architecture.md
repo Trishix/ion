@@ -100,9 +100,9 @@ The instruction resolver supports ancestor instruction files for supplied paths,
 
 ### 7. Separate working memory, reusable memory, and history
 
-Working memory stores bounded file and artifact pointers in each task's artifact directory, including a generated `MEMORY.md`. Repository memory uses a separate SQLite database per workspace identity. Records carry scope, evidence kind, source references, hashes, lifecycle status, and supersession metadata. Retrieval is bounded and local; the engine records file observations and successful command recipes.
+Working memory stores bounded file and artifact pointers in each task's artifact directory, including a generated `MEMORY.md`. Repository memory uses a separate SQLite database per workspace identity. Records carry scope, evidence kind, source references, hashes, lifecycle status, validity windows, and supersession metadata. Retrieval is bounded and local; future-dated records are withheld and the engine records file observations and successful command recipes.
 
-Retrieved memory is evidence, not authority. Lifecycle helpers support invalidation and forgetting; forgetting excludes retrieval without erasing source artifacts. Do not assume that stored facts establish current file contents: guarded edits still require current reads.
+Retrieved memory is evidence, not authority. Lifecycle helpers support invalidation and forgetting; forgetting excludes retrieval without erasing source artifacts. Memory persistence is advisory, so a local database failure does not discard the active tool result. Do not assume that stored facts establish current file contents: guarded edits still require current reads.
 
 The run journal stores tasks, ordered events, operations, and deduplicated control requests. It does not restore a complete model conversation. Checkpoint contracts and the atomic `Compactor` exist and have tests, and context assembly accepts checkpoints, but the current engine does not invoke the compactor or pass a loaded checkpoint into its request loop.
 
@@ -110,7 +110,7 @@ The run journal stores tasks, ordered events, operations, and deduplicated contr
 
 `CommandSupervisor` runs host subprocesses in the workspace with a small environment allowlist, a timeout capped at 120 seconds, retained output capped at 16 MiB, and process-group cleanup. Dispatch policy checks commands and paths; known secrets are redacted from captured output. The supervisor uses shell execution, so these checks are not a security sandbox.
 
-This supports existing project test commands without provisioning containers. It requires trusted repositories: tests, build scripts, and installed tools run with the user's host permissions. There is no container backend or hostile-code isolation guarantee.
+This supports existing project test commands without provisioning containers. The command policy rejects multiline input, shell chains, redirection, and command or process substitution before invoking the shell. It requires trusted repositories: tests, build scripts, and installed tools run with the user's host permissions. There is no container backend or hostile-code isolation guarantee.
 
 ### 9. Require evidence tied to the final workspace
 

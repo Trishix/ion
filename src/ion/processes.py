@@ -81,8 +81,14 @@ class CommandSupervisor:
     def _validate_command(command: str) -> None:
         if "\x00" in command:
             raise ValueError("command execution policy rejected null bytes")
+        if "\n" in command or "\r" in command:
+            raise ValueError("command execution policy rejects multiline shell input")
+        if re.search(r"\$\(|`|\$\{|<\(|>\(", command):
+            raise ValueError("command execution policy rejects shell substitutions")
         try:
-            parts = shlex.split(command)
+            lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            parts = list(lexer)
         except ValueError as exc:
             raise ValueError("command execution policy rejected malformed shell syntax") from exc
         if any(part in {"&&", "||", ";", "|", ">", ">>", "<", "&"} for part in parts):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 from pathlib import Path
 
 from ion.budget import BudgetError, BudgetFailureCode, BudgetLedger
@@ -657,23 +658,26 @@ class Engine:
                         except OSError:
                             await self._emit(Phase.act, "Memory file unavailable; continuing with in-process pointers")
                         if self.memory_store and result.status == OperationStatus.succeeded:
-                            if call.tool == "file_read" and result.data.get("path") and result.data.get("sha256"):
-                                self.memory_store.observe({
-                                    "scope": f"repo:{workspace.root}",
-                                    "fact_key": f"file:{result.data['path']}",
-                                    "text": f"Observed {result.data['path']} at hash {result.data['sha256']}",
-                                    "evidence_kind": "observed",
-                                    "source_refs": [f"{result.data['path']}:{result.data['sha256']}"],
-                                    "supporting_hashes": [result.data["sha256"]],
-                                })
-                            elif call.tool == "command_start" and result.data.get("exit_code") == 0:
-                                self.memory_store.observe({
-                                    "scope": f"repo:{workspace.root}",
-                                    "fact_key": "command.last_success",
-                                    "text": str(call.arguments.get("command", ""))[:500],
-                                    "evidence_kind": "observed",
-                                    "source_refs": [str(result.data.get("artifact_id", call.operation_id))],
-                                })
+                            try:
+                                if call.tool == "file_read" and result.data.get("path") and result.data.get("sha256"):
+                                    self.memory_store.observe({
+                                        "scope": f"repo:{workspace.root}",
+                                        "fact_key": f"file:{result.data['path']}",
+                                        "text": f"Observed {result.data['path']} at hash {result.data['sha256']}",
+                                        "evidence_kind": "observed",
+                                        "source_refs": [f"{result.data['path']}:{result.data['sha256']}"],
+                                        "supporting_hashes": [result.data["sha256"]],
+                                    })
+                                elif call.tool == "command_start" and result.data.get("exit_code") == 0:
+                                    self.memory_store.observe({
+                                        "scope": f"repo:{workspace.root}",
+                                        "fact_key": "command.last_success",
+                                        "text": str(call.arguments.get("command", ""))[:500],
+                                        "evidence_kind": "observed",
+                                        "source_refs": [str(result.data.get("artifact_id", call.operation_id))],
+                                    })
+                            except (OSError, ValueError, sqlite3.Error):
+                                await self._emit(Phase.act, "Repository memory unavailable; continuing with task evidence")
                         if result.status == OperationStatus.succeeded and call.tool in {"file_read", "repo_search", "diff_inspect", "command_start"}:
                             inspected = True
                         if result.status == OperationStatus.succeeded and call.tool in {"trace_symbol", "infra_scan"} and result.data.get("scanned_files", 0):

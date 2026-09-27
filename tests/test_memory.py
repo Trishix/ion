@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from ion.memory.store import MemoryStore
 
 
@@ -35,4 +37,21 @@ def test_same_fact_records_retain_history_and_explicit_replacement(tmp_path):
     new = store.observe({"scope": "repo", "fact_key": "test.command", "text": "pytest -q", "evidence_kind": "observed", "source_refs": ["pyproject.toml:b"], "supersedes_id": old.memory_id})
     assert store.get(old.memory_id).status == "superseded"
     assert store.get(new.memory_id).status == "active"
+    store.close()
+
+
+def test_future_memory_is_not_retrieved_until_valid_from(tmp_path):
+    store = MemoryStore(tmp_path / "knowledge.sqlite3")
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+    record = store.observe({
+        "scope": "repo",
+        "fact_key": "future.command",
+        "text": "Run the future check",
+        "evidence_kind": "observed",
+        "source_refs": ["future"],
+        "valid_from": future,
+    })
+    assert store.query("repo", "future") == []
+    assert store.profile("repo") == []
+    assert store.get(record.memory_id).valid_from == future
     store.close()
