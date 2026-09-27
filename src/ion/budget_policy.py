@@ -29,11 +29,13 @@ class OutputPlan:
 
 
 class BudgetPolicy:
-    def __init__(self, verification_tokens: int = 256, finalization_tokens: int = 256) -> None:
+    def __init__(self, verification_tokens: int = 256, finalization_tokens: int = 256,
+                 preferred_output_tokens: dict[WorkClass, int] | None = None) -> None:
         if verification_tokens < 0 or finalization_tokens < 0:
             raise ValueError("protected output reserves cannot be negative")
         self.verification_tokens = verification_tokens
         self.finalization_tokens = finalization_tokens
+        self.preferred_output_tokens = preferred_output_tokens or {}
 
     def plan(self, work_class: WorkClass, input_tokens: int, profile: ModelProfile,
              snapshot: BudgetSnapshot) -> OutputPlan:
@@ -53,6 +55,9 @@ class BudgetPolicy:
             WorkClass.verify: (256, 512),
             WorkClass.finalize: (256, 512),
         }[work_class]
+        preferred = self.preferred_output_tokens.get(work_class, preferred)
+        if preferred < minimum:
+            raise ValueError("preferred output tokens cannot be below the work-class minimum")
         preferred = min(preferred, profile.max_output_tokens)
         if work_class == WorkClass.finalize:
             protected = 0
