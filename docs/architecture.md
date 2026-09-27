@@ -1,6 +1,6 @@
 # System architecture
 
-Status: proposed v1 architecture. No runtime is implemented in this documentation deliverable.
+Status: runtime reference for the shipped foreground harness. Future increments are tracked in [agile](agile.md).
 
 ## Architectural decision
 
@@ -8,7 +8,7 @@ Build a modular Python application with a durable session engine and a TUI as it
 
 Python 3.12 is the development compatibility target, with the exact patch release and dependencies locked during implementation after OPEN-02 validation. Use asyncio, SQLite/FTS5, filesystem artifacts, Textual, and uv packaging. Do not add a workflow server, hosted memory dependency, or mandatory container daemon to the competition baseline.
 
-The agent loop is an explicit state machine owned by Ion. This gives direct control over tool settlement, provider message validity, and completion evidence. The cost is owning recovery tests and migrations ourselves. LangGraph remains a viable alternative, but adding it would not remove the need to reconcile repository side effects; see DEC-02 in [research-and-decisions](research-and-decisions.md).
+The agent loop is an explicit state machine owned by Ion. This gives direct control over tool settlement, provider message validity, and completion evidence. The cost is owning recovery tests and migrations ourselves. A workflow framework could sit behind this boundary later, but it would not remove the need to reconcile repository side effects.
 
 ## Component map
 
@@ -46,7 +46,7 @@ flowchart TB
 
 ## Process and storage topology
 
-One engine process owns a session's event database and serves its restricted local socket. The TUI can disconnect without killing the engine. A re-launched TUI finds the session under Ion's private data root and reconnects. Engine exit releases the OS workspace lock but leaves a durable ownership claim. Every new or resumed session must reconcile that claim and its processes/unknown operations before obtaining write authority.
+The foreground TUI owns the session service, event database, and restricted local socket for its lifetime. A re-launched TUI can inspect the journal under Ion's private data root. `/resume` performs recovery checks and prepares a safe re-submission; it does not replay an old engine run or repository mutation. Detached client-independent execution is a future increment. Engine exit releases the OS workspace lock but leaves a durable ownership claim. Every new or resumed session must reconcile that claim and its processes/unknown operations before obtaining write authority.
 
 Repository commands run in separate process groups with sanitized environments. Workers have separate logical transcripts and bounded contexts; they do not inherit the parent's entire conversation or capability set. They can execute as engine-managed asynchronous jobs because their exposed tools are read-only and brokered by Ion.
 
@@ -97,4 +97,4 @@ Container execution is a future backend, not a claim of present security. Local 
 
 ## Delivery order
 
-Implement the end-to-end coding loop through the TUI from the start; then durability/verification, memory/context, and measured workers. A polished interface does not substitute for externally verified issue resolution. Milestones and acceptance gates are in [implementation-plan](implementation-plan.md).
+The shipped path covers the end-to-end TUI loop, durability, verification, memory/context, and bounded workers. A polished interface does not substitute for externally verified issue resolution. Future increments and acceptance gates are in [agile](agile.md).

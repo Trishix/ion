@@ -1,6 +1,6 @@
 # Memory architecture
 
-Status: normative v1 design. Owns reusable knowledge behavior; [interfaces-and-data](interfaces-and-data.md) owns record shapes and constants.
+Status: runtime reference. Owns reusable knowledge behavior; [interfaces-and-data](interfaces-and-data.md) owns record shapes and constants.
 
 ## Authority and memory categories
 

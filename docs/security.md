@@ -1,6 +1,6 @@
 # Security and trust boundaries
 
-Status: v1 threat model and requirements, not an implemented security guarantee.
+Status: runtime security boundary and limitations. Controls are implemented where noted; trusted-local execution is still an explicit assumption.
 
 ## Scope and assumptions
 

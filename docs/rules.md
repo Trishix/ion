@@ -65,4 +65,4 @@ The documented official sequence is: obtain repository, enter its root, export A
 
 The root README shows the sequence without a real credential. The blank .env.example also lists optional provider-specific variable names for local product use; official evaluation still requires only AI_API_KEY.
 
-Submission compliance requires evidence from the final submitted revision. A documentation review does not establish runtime compliance. See [evaluation](evaluation.md) and [implementation-plan](implementation-plan.md).
+Submission compliance requires evidence from the final submitted revision. A documentation review does not establish runtime compliance. See [evaluation](evaluation.md) and [agile](agile.md).

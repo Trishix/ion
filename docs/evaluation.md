@@ -1,6 +1,6 @@
 # Evaluation and release verification
 
-Status: required future validation procedure. No runtime checks or benchmark scores exist yet.
+Status: validation reference. Offline checks are shipped; organizer-specific live evaluation remains gated by [rules](rules.md).
 
 ## Test layers
 
@@ -16,28 +16,28 @@ Do not write tests that merely restate a mocked response. For example, recovery 
 
 | ID | Requirement coverage | Scenarios and required observation |
 | --- | --- | --- |
-| EVAL-01 | HK-01–03, HK-09, HK-11, HK-13; PRD-01, PRD-12 | Clean checkout runs setup, offline tests, and launch; rerun setup is idempotent; no source edits/manual fixes; key unnecessary for setup/test. |
-| EVAL-02 | HK-03, HK-08; PRD-09, PRD-13 | TUI launch via make run, interactive task text entry/paste, target selection, clear non-TTY launch failure, UI detach/reattach, session inspection without model calls. |
-| EVAL-03 | HK-04–05; PRD-11 | Missing/invalid key, known secret echoed by a fixture, subprocess environment capture, provider error dump, tracked-file/history scan; no secret reaches child env or retained output. |
-| EVAL-04 | HK-06–07; PRD-01 | Primary/worker/compactor/extractor all use locked text model; reject repository/user config model override; native and structured-action protocols; reject media-dependent inputs and malformed actions. |
-| EVAL-05 | PRD-02–03, PRD-14 | Dirty index/worktree, new files, deletion, symlink escape, traversal, non-Git inspection, external edit after read; unrelated external edits excluded from Ion patch; same-file/command overlap marked ambiguous; preserve user changes and reject stale patches. |
-| EVAL-06 | PRD-03, PRD-08 | Invalid tool arguments, large Unicode output, huge single line, quota exhaustion, process timeout, unexpected interactive subprocess prompt, background readiness failure, descendant cancellation, cursor pagination. |
-| EVAL-07 | PRD-04, PRD-14 | Crash before/after intent; command side effect before settlement; multi-file partial patch; PID reuse; session A crashes during a writing command and session B immediately starts; spawn gate/owner-loss cleanup; missing/corrupt artifact; interrupted checkpoint. Never blindly replay unknown writes or admit a second writer around an orphan. |
-| EVAL-08 | PRD-05 | Small context limit, repeated compaction, post-intake non-criterion constraints and steering during summary generation, lost-summary constraint attempt, orphaned tool result, provider-native epoch metadata, failed compactor, one overflow repair, pinned content too large. |
-| EVAL-09 | PRD-06, PRD-13 | Cross-repo/branch facts, changed lockfile, contradictory observations, inferred fact labeling, stale derivation, forgotten fact re-ingestion, scope leaks, duplicate injection, retrieval timeout. |
-| EVAL-10 | PRD-07, PRD-13 | Fabricated evidence IDs, unrelated passing tests, zero tests collected, failing baseline, new regression, post-test edit, service cleanup modifies source, unavailable check, no-op task, valid static/observation evidence without fabricated commands, kind-specific missing-source rejection, patch attribution and final report accuracy. |
-| EVAL-11 | PRD-08, PRD-10 | Concurrent budget reservation, retry charges, worker timeout, same-model enforcement, attempted recursive delegation/write, stale worker snapshot, valid polling versus loop, pause/cancel, exhausted finalization reserve. |
-| EVAL-12 | HK-12; PRD-14 | Cleanup removes enumerated disposable artifacts only; preserve target files, sessions, user logs, patches, symlinks to external locations. |
-| EVAL-13 | PRD-02, PRD-11 | AGENTS/CLAUDE precedence, instructions in logs/memory, repo capability escalation, model lock bypass, worker artifact scope, private socket permissions, no public listener. |
-| EVAL-14 | HK-10; PRD-12 | Manifest/configuration capture, model usage including auxiliary calls, unknown usage reporting, baseline/ablation comparison, reset of evaluation memory, independent grading. |
+| EVAL-01 | HK-01–03, HK-09, HK-11, HK-13 | Clean checkout runs setup, offline tests, and launch; rerun setup is idempotent; no source edits/manual fixes; key unnecessary for setup/test. |
+| EVAL-02 | HK-03, HK-08 | TUI launch via make run, interactive task text entry/paste, target selection, clear non-TTY launch failure, UI detach/reattach, session inspection without model calls. |
+| EVAL-03 | HK-04–05 | Missing/invalid key, known secret echoed by a fixture, subprocess environment capture, provider error dump, tracked-file/history scan; no secret reaches child env or retained output. |
+| EVAL-04 | HK-06–07 | Primary/worker/compactor/extractor all use locked text model; reject repository/user config model override; native and structured-action protocols; reject media-dependent inputs and malformed actions. |
+| EVAL-05 | Ion workspace policy | Dirty index/worktree, new files, deletion, symlink escape, traversal, non-Git inspection, external edit after read; unrelated external edits excluded from Ion patch; same-file/command overlap marked ambiguous; preserve user changes and reject stale patches. |
+| EVAL-06 | Ion process policy | Invalid tool arguments, large Unicode output, huge single line, quota exhaustion, process timeout, unexpected interactive subprocess prompt, background readiness failure, descendant cancellation, cursor pagination. |
+| EVAL-07 | Ion recovery policy | Crash before/after intent; command side effect before settlement; multi-file partial patch; PID reuse; session A crashes during a writing command and session B immediately starts; spawn gate/owner-loss cleanup; missing/corrupt artifact; interrupted checkpoint. Never blindly replay unknown writes or admit a second writer around an orphan. |
+| EVAL-08 | Ion context policy | Small context limit, repeated compaction, post-intake non-criterion constraints and steering during summary generation, lost-summary constraint attempt, orphaned tool result, provider-native epoch metadata, failed compactor, one overflow repair, pinned content too large. |
+| EVAL-09 | Ion memory policy | Cross-repo/branch facts, changed lockfile, contradictory observations, inferred fact labeling, stale derivation, forgotten fact re-ingestion, scope leaks, duplicate injection, retrieval timeout. |
+| EVAL-10 | Ion verification policy | Fabricated evidence IDs, unrelated passing tests, zero tests collected, failing baseline, new regression, post-test edit, service cleanup modifies source, unavailable check, no-op task, valid static/observation evidence without fabricated commands, kind-specific missing-source rejection, patch attribution and final report accuracy. |
+| EVAL-11 | Ion budget/worker policy | Concurrent budget reservation, retry charges, worker timeout, same-model enforcement, attempted recursive delegation/write, stale worker snapshot, valid polling versus loop, pause/cancel, exhausted finalization reserve. |
+| EVAL-12 | HK-12 | Cleanup removes enumerated disposable artifacts only; preserve target files, sessions, user logs, patches, symlinks to external locations. |
+| EVAL-13 | Ion security policy | AGENTS/CLAUDE precedence, instructions in logs/memory, repo capability escalation, model lock bypass, worker artifact scope, private socket permissions, no public listener. |
+| EVAL-14 | HK-10 | Manifest/configuration capture, model usage including auxiliary calls, unknown usage reporting, baseline/ablation comparison, reset of evaluation memory, independent grading. |
 
 All critical offline cases must pass before calling a milestone complete. Passing them establishes tested behavior, not universal correctness or immunity to malicious code.
 
 ## Offline suite contract
 
-The future make test runs schema/unit, repository/process integration, and scripted end-to-end scenarios without network or credentials. Tests use isolated temporary directories and must never operate on the developer's real home/repository as a destructive target.
+`make test` runs schema/unit, repository/process integration, and scripted end-to-end scenarios without network or credentials. Tests use isolated temporary directories and must never operate on the developer's real home/repository as a destructive target.
 
-Test files and implementation ownership are specified in [implementation-plan](implementation-plan.md). Provider simulation emits tool calls, transient errors, malformed JSON, usage reports, and context-overflow signals in controlled order.
+Tests live under `tests/` and are grouped by runtime concern. Provider simulation emits tool calls, transient errors, malformed JSON, usage reports, and context-overflow signals in controlled order. Use [agile](agile.md) to plan new scenarios.
 
 Process tests run on each supported OS. If the actual evaluation OS cannot support a required process-control guarantee, resolve OPEN-02 before release rather than skipping the test silently.
 
@@ -86,4 +86,4 @@ The harness must be installable through the standard entrypoint. A project runni
 
 ## Documentation-phase verification
 
-For the current deliverable, verify document inventory, relative links/anchors, unique requirement IDs, PRD-to-evaluation coverage, consistent schemas/defaults, Mermaid syntax, and source pinning. Review semantic failure modes separately. These checks do not satisfy the runtime scenario matrix above.
+For documentation changes, verify document inventory, relative links/anchors, unique requirement IDs, consistent schemas/defaults, and Mermaid syntax. Review semantic failure modes separately. These checks do not satisfy the runtime scenario matrix above.
