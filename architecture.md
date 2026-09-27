@@ -72,6 +72,8 @@ Regular tasks keep the immutable launch directory as their workspace. A pasted G
 
 `file_read` returns bounded pages and read IDs. `edit_file` replaces observed text using current evidence; `write_file` requires complete observed contents for existing files and refuses to overwrite a file through creation. The context manager and dispatcher also restrict write evidence to source visible in the active request. There is no file-deletion tool.
 
+Credential-bearing metadata is excluded from direct reads and repository search, including VCS metadata directories, SSH/AWS credential directories, environment files, and common package credential files. Artifact reads reject symlink substitutions, and workspace ownership state fails closed on malformed or unknown registry states.
+
 A workspace lease combines an OS lock with a durable claim. An interrupted owner can leave `recovery_required` state even after its process exits. This favors explicit reconciliation over admitting a writer when an earlier side effect is uncertain. Filesystem checks do not prevent arbitrary host programs from accessing other paths.
 
 ### 4. Offer small tool bundles without treating visibility as permission

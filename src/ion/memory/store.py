@@ -62,7 +62,9 @@ class MemoryStore:
                 (record.memory_id, record.scope, record.fact_key, record.text),
             )
             if record.supersedes_id:
-                self.connection.execute("UPDATE memories SET status = 'superseded' WHERE memory_id = ? AND scope = ?", (record.supersedes_id, record.scope))
+                cursor = self.connection.execute("UPDATE memories SET status = 'superseded' WHERE memory_id = ? AND scope = ? AND status = 'active'", (record.supersedes_id, record.scope))
+                if cursor.rowcount != 1:
+                    raise ValueError("superseded memory must name an active record in the same scope")
         return record
 
     def get(self, memory_id: str) -> MemoryRecord:

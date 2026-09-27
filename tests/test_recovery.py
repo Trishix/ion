@@ -50,3 +50,17 @@ def test_recovery_marker_is_not_cleared_by_release(tmp_path):
     lease.release()
     assert json.loads(registry.read_text())["status"] == "recovery_required"
     lease.release()
+
+
+def test_workspace_lease_rejects_unknown_registry_state(tmp_path):
+    registry = tmp_path / "ownership.json"
+    registry.write_text(json.dumps({"status": "mystery", "workspace_id": WorkspaceLease.workspace_id(tmp_path)}))
+    with pytest.raises(WorkspaceRecoveryRequired, match="unknown state"):
+        WorkspaceLease(tmp_path, registry).acquire()
+
+
+def test_workspace_lease_rejects_non_object_registry(tmp_path):
+    registry = tmp_path / "ownership.json"
+    registry.write_text("[]")
+    with pytest.raises(WorkspaceRecoveryRequired, match="not an object"):
+        WorkspaceLease(tmp_path, registry).acquire()

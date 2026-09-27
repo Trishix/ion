@@ -48,15 +48,27 @@ class SessionService:
     def control(self, session_id: str, action: str, request_id: str) -> dict:
         if action not in {"pause", "resume", "cancel"}:
             raise ValueError("unsupported session action")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id cannot be blank")
         existing = self.store.connection.execute(
             "SELECT response_json FROM request_dedup WHERE task_id = ? AND request_id = ?",
             (session_id, request_id),
         ).fetchone()
         if existing:
             return json.loads(existing[0])
+        detail = self.store.inspect(session_id)
+        if detail is None:
+            return {"ok": False, "error": "session not found"}
+        current = detail["status"]
         unresolved = self.store.unresolved_operations(session_id)
         if action == "resume" and unresolved:
             response = {"ok": False, "error": "reconciliation required", "operations": unresolved}
+        elif action == "pause" and current != "running":
+            response = {"ok": False, "error": f"cannot pause session in {current} state"}
+        elif action == "resume" and current != "paused":
+            response = {"ok": False, "error": f"cannot resume session in {current} state"}
+        elif action == "cancel" and current not in {"running", "paused"}:
+            response = {"ok": False, "error": f"cannot cancel session in {current} state"}
         else:
             status = {"pause": "paused", "resume": "running", "cancel": "cancelled"}[action]
             self.store.set_status(session_id, status)
@@ -119,7 +131,7 @@ class SessionSocketServer:
                 try:
                     result = self.service.handle(request["method"], request.get("params", {}))
                     response = {"request_id": request_id, "result": result}
-                except (KeyError, ValueError) as exc:
+                except (KeyError, TypeError, ValueError) as exc:
                     response = {"request_id": request_id, "error": {"category": "validation", "message": str(exc)}}
                 writer.write((json.dumps(response, separators=(",", ":")) + "\n").encode())
                 await writer.drain()

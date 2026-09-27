@@ -36,11 +36,21 @@ SPECS: dict[str, dict[str, Any]] = {
 ECONOMY_TOOLS = ("repo_list", "repo_search", "file_read", "edit_file", "write_file", "diff_inspect", "finish_request")
 MAX_PATCH_EDITS = 8
 MAX_PATCH_REPLACEMENT_BYTES = 32_000
+PRIVATE_DIRECTORIES = {".git", ".hg", ".svn", ".ssh", ".aws"}
+PRIVATE_FILENAMES = {".netrc", ".npmrc", ".pypirc", ".git-credentials", "dockerconfig.json", "kubeconfig"}
 
 
 def private_path(path: str) -> bool:
+    parts = {part.lower() for part in Path(path).parts}
     name = Path(path).name.lower()
-    return name == ".env" or name.startswith(".env.") or name in {"credentials.json", "id_rsa", "id_ed25519"} or name.endswith((".pem", ".key", ".p12"))
+    return (
+        bool(parts & PRIVATE_DIRECTORIES)
+        or name in PRIVATE_FILENAMES
+        or name == ".env"
+        or name.startswith(".env.")
+        or name in {"credentials.json", "id_rsa", "id_ed25519"}
+        or name.endswith((".pem", ".key", ".p12"))
+    )
 
 
 def _optional_properties(name: str) -> dict[str, Any]:
@@ -283,7 +293,7 @@ class ToolDispatcher:
                     relative = path.relative_to(self.workspace.root).as_posix()
                     if prefix and relative != prefix and not relative.startswith(prefix + "/"):
                         continue
-                    if private_path(path.name):
+                    if private_path(relative):
                         continue
                     if searched >= 2000:
                         break

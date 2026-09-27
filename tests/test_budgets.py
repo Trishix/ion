@@ -4,6 +4,15 @@ from ion.budget import BudgetError, BudgetLedger, BudgetFailureCode
 from ion.contracts import BudgetReport, Outcome, Phase, TaskResult
 
 
+def test_budget_ledger_rejects_invalid_limits():
+    with pytest.raises(ValueError, match="max_requests"):
+        BudgetLedger(max_requests=0)
+    with pytest.raises(ValueError, match="finite"):
+        BudgetLedger(deadline_seconds=float("nan"))
+    with pytest.raises(ValueError, match="max_total_tokens"):
+        BudgetLedger(max_total_tokens=-1)
+
+
 def test_physical_request_reservations_settle_independently():
     ledger = BudgetLedger(max_requests=4, max_total_tokens=1000, reserve_verification=False)
     first = ledger.reserve(Phase.act, 10, 20)

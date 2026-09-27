@@ -36,15 +36,16 @@ class ModelCatalog:
         self.credential = credential
         self.transport = transport
         self.cache_ttl_seconds = cache_ttl_seconds
-        self.cache: dict[str, tuple[float, CatalogResult]] = {}
+        self.cache: dict[tuple, tuple[float, CatalogResult]] = {}
         self.quota_cache: dict[str, tuple[float, QuotaResult]] = {}
 
     async def list(self, profile: ModelProfile, refresh: bool = False) -> CatalogResult:
-        key = profile.endpoint
+        key = (profile.endpoint, profile.provider, profile.model_id, profile.tool_protocol,
+               profile.context_window, profile.max_output_tokens)
         if not refresh and key in self.cache and monotonic() - self.cache[key][0] < self.cache_ttl_seconds:
             return self.cache[key][1]
         try:
-            async with httpx.AsyncClient(base_url=key.rstrip("/") + "/", transport=self.transport, follow_redirects=False, timeout=10) as client:
+            async with httpx.AsyncClient(base_url=profile.endpoint.rstrip("/") + "/", transport=self.transport, follow_redirects=False, timeout=10) as client:
                 response = await client.get("models", headers={"Authorization": f"Bearer {self.credential}"})
             if response.status_code == 401:
                 return CatalogResult((), "authentication_failed", "API key rejected")

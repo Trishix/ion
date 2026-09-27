@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from threading import Lock
 from time import monotonic
 from typing import Any
@@ -71,6 +72,12 @@ class BudgetSnapshot:
 
 class BudgetLedger:
     def __init__(self, max_requests: int = 24, deadline_seconds: float = 600, max_total_tokens: int | None = None, reserve_verification: bool = True) -> None:
+        if max_requests < 1:
+            raise ValueError("max_requests must be positive")
+        if not isfinite(deadline_seconds):
+            raise ValueError("deadline_seconds must be finite")
+        if max_total_tokens is not None and max_total_tokens < 0:
+            raise ValueError("max_total_tokens cannot be negative")
         self.max_requests = max_requests
         self.deadline = monotonic() + deadline_seconds
         self.used = 0

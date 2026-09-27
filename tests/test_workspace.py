@@ -45,3 +45,18 @@ async def test_file_read_rejects_private_file(tmp_path):
     result = await tools.execute(ToolCall(task_id="t", tool="file_read", arguments={"relative_path": ".env"}))
     assert result.status.value == "failed"
     assert "fixture" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relative_path", [".git/config", ".ssh/id_rsa", ".aws/credentials", "secrets/.netrc"])
+async def test_file_read_rejects_private_metadata_directories(tmp_path, relative_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    path = repo / relative_path
+    path.parent.mkdir(parents=True)
+    path.write_text("PRIVATE=fixture\n")
+    workspace = Workspace.capture(repo)
+    tools = ToolDispatcher(workspace, ArtifactStore(tmp_path / "artifacts"), NoCommands())
+    result = await tools.execute(ToolCall(task_id="t", tool="file_read", arguments={"relative_path": relative_path}))
+    assert result.status.value == "failed"
+    assert "fixture" not in str(result)

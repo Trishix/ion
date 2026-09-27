@@ -40,6 +40,8 @@ class WorkspaceLease:
     def acquire(self) -> "WorkspaceLease":
         if self._held:
             return self
+        if self.lock_path.is_symlink():
+            raise WorkspaceRecoveryRequired("workspace lock path cannot be a symlink")
         self.lock_path.touch(mode=0o600, exist_ok=True)
         os.chmod(self.lock_path, 0o600)
         self._lock = self.lock_path.open("r+")
@@ -60,6 +62,9 @@ class WorkspaceLease:
                 raise WorkspaceRecoveryRequired(
                     f"workspace recovery required for session {current.get('owner_session_id', 'unknown')}"
                 )
+            if status != "clean":
+                self._close_lock()
+                raise WorkspaceRecoveryRequired("workspace ownership registry has an unknown state")
             if current.get("workspace_id") != self.workspace_id(self.workspace):
                 self._close_lock()
                 raise WorkspaceRecoveryRequired("workspace ownership registry identity mismatch")
@@ -105,7 +110,10 @@ class WorkspaceLease:
             return None
         try:
             raw = self.registry_path.read_text()
-            return json.loads(raw) if raw else None
+            value = json.loads(raw) if raw else None
+            if value is not None and not isinstance(value, dict):
+                raise WorkspaceRecoveryRequired("workspace ownership registry is not an object")
+            return value
         except (OSError, ValueError, TypeError) as exc:
             raise WorkspaceRecoveryRequired("workspace ownership registry is corrupt") from exc
 

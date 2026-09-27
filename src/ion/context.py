@@ -32,7 +32,9 @@ def _turn_id(message: dict[str, Any], index: int) -> str:
         if message.get(key) is not None:
             return str(message[key])
     if message.get("tool_calls"):
-        return str(message["tool_calls"][0]["id"])
+        first_call = message["tool_calls"][0]
+        if isinstance(first_call, dict) and first_call.get("id") is not None:
+            return str(first_call["id"])
     if message.get("tool_call_id"):
         return str(message["tool_call_id"])
     return f"turn:{index}"
@@ -103,7 +105,8 @@ def _groups(recent: list[tuple[int, dict[str, Any]]]) -> list[tuple[int, list[in
         if message.get("role") != "assistant":
             continue
         end = next((i for i in range(pos + 1, len(recent)) if recent[i][1].get("role") == "assistant"), len(recent))
-        calls = {str(call["id"]) for call in message.get("tool_calls", ())}
+        calls = {str(call.get("id")) for call in message.get("tool_calls", ())
+                 if isinstance(call, dict) and call.get("id") is not None}
         results = {str(recent[i][1].get("tool_call_id")) for i in range(pos + 1, end)
                    if recent[i][1].get("role") == "tool"}
         structured = _structured_action(message)

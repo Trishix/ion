@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from ion.memory.store import MemoryStore
 
 
@@ -37,6 +39,8 @@ def test_same_fact_records_retain_history_and_explicit_replacement(tmp_path):
     new = store.observe({"scope": "repo", "fact_key": "test.command", "text": "pytest -q", "evidence_kind": "observed", "source_refs": ["pyproject.toml:b"], "supersedes_id": old.memory_id})
     assert store.get(old.memory_id).status == "superseded"
     assert store.get(new.memory_id).status == "active"
+    with pytest.raises(ValueError, match="superseded memory"):
+        store.observe({"scope": "repo", "fact_key": "orphan", "text": "orphan", "evidence_kind": "derived", "source_refs": ["missing"], "supersedes_id": "missing-id"})
     store.close()
 
 

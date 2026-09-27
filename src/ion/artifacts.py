@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -18,17 +19,21 @@ class ArtifactStore:
     def put(self, data: bytes, kind: str, redacted: bool = False, complete: bool = True) -> ArtifactRef:
         artifact_id = str(uuid4())
         path = self.root / artifact_id
-        temp = path.with_suffix(".tmp")
+        fd, temp_name = tempfile.mkstemp(prefix=f".{artifact_id}-", suffix=".tmp", dir=self.root)
+        os.close(fd)
+        temp = Path(temp_name)
         metadata_path = self._metadata_root / artifact_id
-        metadata_temp = metadata_path.with_suffix(".tmp")
+        metadata_fd, metadata_temp_name = tempfile.mkstemp(prefix=f".{artifact_id}-", suffix=".tmp", dir=self._metadata_root)
+        os.close(metadata_fd)
+        metadata_temp = Path(metadata_temp_name)
         try:
-            fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(fd, "wb") as stream:
+            with temp.open("wb") as stream:
+                os.chmod(temp, 0o600)
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            metadata_fd = os.open(metadata_temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(metadata_fd, "wb") as stream:
+            with metadata_temp.open("wb") as stream:
+                os.chmod(metadata_temp, 0o600)
                 stream.write(b"1" if complete else b"0")
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -50,13 +55,19 @@ class ArtifactStore:
     def read(self, artifact_id: str) -> bytes:
         if "/" in artifact_id or ".." in artifact_id:
             raise ValueError("invalid artifact id")
-        return (self.root / artifact_id).read_bytes()
+        path = self.root / artifact_id
+        if path.is_symlink():
+            raise ValueError("artifact cannot be a symlink")
+        return path.read_bytes()
 
     def is_complete(self, artifact_id: str) -> bool:
         if "/" in artifact_id or ".." in artifact_id:
             raise ValueError("invalid artifact id")
+        metadata_path = self._metadata_root / artifact_id
+        if metadata_path.is_symlink():
+            raise ValueError("artifact metadata cannot be a symlink")
         try:
-            state = (self._metadata_root / artifact_id).read_bytes()
+            state = metadata_path.read_bytes()
         except FileNotFoundError:
             return False  # Legacy artifacts cannot prove complete capture.
         if state not in (b"0", b"1"):
