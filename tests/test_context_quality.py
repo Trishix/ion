@@ -81,6 +81,38 @@ def test_latest_file_read_body_is_compacted_before_blocking():
     assert "reread by reference" in encoded
 
 
+def test_latest_non_file_tool_output_is_compacted_before_blocking():
+    task = _task()
+    history = [{"role": "user", "content": task.text},
+               {"role": "assistant", "content": None, "tool_calls": [{"id": "scan", "type": "function",
+                "function": {"name": "infra_scan", "arguments": "{}"}}]},
+               {"role": "tool", "tool_call_id": "scan",
+                "content": json.dumps({"status": "succeeded", "data": {"output": "X" * 9000, "framework": "python"}})}]
+
+    packet = ContextManager().build(task, _profile(), Phase.inspect, history, "",
+                                    tool_names=("infra_scan", "finish_request"), input_budget_tokens=1600)
+
+    encoded = json.dumps(packet.messages)
+    assert "X" * 9000 not in encoded
+    assert "body omitted; reread by reference" in encoded
+    assert packet.manifest.omission_reasons["scan"] == "latest_tool_body_preview"
+    output = json.loads(packet.messages[-1]["content"])
+    assert output["data"]["framework"] == "python"
+
+
+def test_applied_steering_is_not_repeated_in_history():
+    task = _task()
+    packet = ContextManager().build(
+        task, _profile(), Phase.inspect,
+        [{"role": "user", "content": task.text}, {"role": "user", "content": "User steering: Keep the CLI stable"}],
+        "", steering=("Keep the CLI stable",), tool_names=("finish_request",), input_budget_tokens=1600,
+    )
+
+    encoded = json.dumps(packet.messages)
+    assert encoded.count("Keep the CLI stable") == 1
+    assert packet.manifest.omission_reasons["turn:1"] == "steering_pinned"
+
+
 def test_bundle_schema_cost_is_included_in_estimate():
     task = _task()
     history = [{"role": "user", "content": task.text}]

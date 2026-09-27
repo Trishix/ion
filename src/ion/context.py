@@ -54,10 +54,16 @@ def _trim_body(message: dict[str, Any], *, preview: int = 0) -> bool:
         return False
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     changed = False
+    marker = " [body omitted; reread by reference]"
     for key in ("text", "output", "preview"):
-        if isinstance(data.get(key), str) and len(data[key]) > preview and "[body omitted; reread by reference]" not in data[key]:
-            data[key] = data[key][:preview] + " [body omitted; reread by reference]"
-            changed = True
+        value = data.get(key)
+        if not isinstance(value, str):
+            continue
+        original = value.split(marker, 1)[0]
+        if len(original) <= preview:
+            continue
+        data[key] = original[:preview] + marker
+        changed = True
     if changed:
         prefix = "Tool result: " if str(message.get("content", "")).startswith("Tool result: ") else ""
         message["content"] = prefix + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -224,6 +230,18 @@ class ContextManager:
             recent.pop(0)  # The task is already pinned above.
         dropped = 0
         reasons: dict[str, str] = {}
+        # Steering is pinned in the system message. The engine also records it
+        # in history for journaling, but sending that duplicate to the model
+        # wastes context on every turn.
+        pinned_steering = {f"User steering: {item}" for item in steering if item.strip()}
+        if pinned_steering:
+            retained: list[tuple[int, dict[str, Any]]] = []
+            for index, message in recent:
+                if message.get("role") == "user" and message.get("content") in pinned_steering:
+                    reasons[_turn_id(message, index)] = "steering_pinned"
+                    continue
+                retained.append((index, message))
+            recent = retained
         cap = profile.max_output_tokens if output_cap is None else output_cap
         if cap <= 0 or cap > profile.max_output_tokens:
             raise ValueError("output_cap must be within the model profile output limit")
@@ -270,8 +288,13 @@ class ContextManager:
 
             groups = _groups(recent)
             protected = set(groups[-1][1]) if groups else set()
-            latest_complete = next((exchange for pos, exchange, complete in reversed(groups)
-                                    if complete and _is_tool_action(recent[pos][1])), ())
+            latest_complete_pos = None
+            latest_complete = ()
+            for pos, exchange, complete in reversed(groups):
+                if complete and _is_tool_action(recent[pos][1]):
+                    latest_complete_pos = pos
+                    latest_complete = exchange
+                    break
             protected.update(latest_complete)
             referenced_reads: set[str] = set()
             for pos, exchange, complete in groups:
@@ -383,6 +406,42 @@ class ContextManager:
                         if shrunk:
                             break
                     if shrunk:
+                        continue
+                    # The latest exchange is protected as an action/result
+                    # pair, but bulky non-file tool output is still redundant
+                    # once its structured metadata and artifact references are
+                    # retained. Compact it before declaring required context
+                    # impossible. Read IDs referenced by a pending edit remain
+                    # protected so that the edit can still be dispatched.
+                    for target_preview in (512, 0):
+                        compacted = False
+                        latest_file_read_ids = {
+                            str(call.get("id"))
+                            for call in (recent[latest_complete_pos][1].get("tool_calls", ()) if latest_complete_pos is not None else ())
+                            if call.get("function", {}).get("name") == "file_read"
+                            and call.get("id") is not None
+                        }
+                        for i in latest_complete:
+                            message = recent[i][1]
+                            if message.get("role") not in {"tool", "user"}:
+                                continue
+                            if str(message.get("tool_call_id")) in latest_file_read_ids:
+                                # A malformed file-read result without its
+                                # read identity must fail closed; shrinking it
+                                # would hide the evidence needed to recover.
+                                continue
+                            payload = _payload(message)
+                            data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
+                            read_id = data.get("read_id") if isinstance(data, dict) else None
+                            if read_id and str(read_id) in referenced_reads:
+                                continue
+                            if _trim_body(message, preview=target_preview):
+                                reasons[_turn_id(message, recent[i][0])] = "latest_tool_body_preview"
+                                compacted = True
+                                break
+                        if compacted:
+                            break
+                    if compacted:
                         continue
                     if include_pointers:
                         include_pointers = False
