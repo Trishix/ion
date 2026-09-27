@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from ion.artifacts import ArtifactStore
-from ion.config import load_config
+from ion.config import EconomyConfig, load_config
 from ion.context import ContextManager
 from ion.contracts import ModelEvent, TaskSpec, ToolResult
 from ion.engine import Engine
@@ -50,7 +50,28 @@ async def test_engine_reports_context_overflow_without_dispatch(tmp_path):
     assert result.error_category == "context_overflow"
     assert result.request_dispatched is False
     assert "no model request was sent" in result.summary.lower()
+    assert "latest tool result" in result.summary.lower()
+    assert "narrow" in result.summary.lower()
+    assert "larger-context profile" in result.summary.lower()
     assert result.budget is not None
+
+
+@pytest.mark.asyncio
+async def test_empty_repository_can_create_named_file(tmp_path):
+    provider = ScriptedProvider([[
+        ModelEvent(kind="tool_call", tool="write_file", arguments={
+            "plan": "Add the requested greeting file", "relative_path": "hello.txt",
+            "content": "Hello, world!\n", "done": True,
+        }, call_id="create"), ModelEvent(kind="completed"),
+    ]])
+    engine, repo = _engine(tmp_path, provider)
+    result = await engine.run(TaskSpec(text="Create hello.txt with a greeting", repo_path=str(repo),
+                                       profile_name=engine.config.default_profile))
+
+    assert "write_file" in {schema["function"]["name"] for schema in provider.requests[0].tools}
+    assert (repo / "hello.txt").read_text() == "Hello, world!\n"
+    assert result.changed_files == ("hello.txt",)
+    assert result.outcome == "unverified"
 
 
 @pytest.mark.asyncio
@@ -135,3 +156,65 @@ def test_tool_preview_respects_configured_maximum():
     preview = json.loads(response)["data"]["output"]
     assert len(preview) <= 256
     assert "output shortened" in preview
+
+
+def test_reviewed_preview_config_name_accepts_validated_value():
+    config = EconomyConfig(max_tool_preview_chars=256)
+    assert config.max_tool_preview_chars == 256
+    assert config.tool_preview_max_chars == 256
+    with pytest.raises(ValueError):
+        EconomyConfig(max_tool_preview_chars=255)
+
+
+@pytest.mark.asyncio
+async def test_file_read_preview_repoints_next_offset(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "long.txt"}, call_id="read"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="tool_call", tool="finish_request", arguments={"summary": "Read the preview"}, call_id="finish"), ModelEvent(kind="completed")],
+    ])
+    engine, repo = _engine(tmp_path, provider, files={"long.txt": "A" * 1000},
+                           economy_fields={"max_tool_preview_chars": 256})
+    await engine.run(TaskSpec(text="Inspect repository", repo_path=str(repo),
+                              profile_name=engine.config.default_profile))
+
+    result_message = next(message for message in provider.requests[1].messages if message.get("tool_call_id") == "read")
+    data = json.loads(result_message["content"])["data"]
+    assert len(data["text"]) == 256
+    assert data["offset"] == 0
+    assert data["next_offset"] == 256
+    assert data["truncated"] is True
+    assert data["fully_read"] is False
+    assert "file_read" in data["read_more"]
+    assert "Unseen page: offset=256" in provider.requests[1].messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_prefetched_read_preview_does_not_claim_full_rewrite_evidence(tmp_path):
+    provider = ScriptedProvider([[ModelEvent(kind="error", error="provider quota exhausted")]])
+    engine, repo = _engine(tmp_path, provider, files={"long.txt": "A" * 1000},
+                           economy_fields={"max_tool_preview_chars": 256})
+    await engine.run(TaskSpec(text="Rewrite long.txt", repo_path=str(repo),
+                              profile_name=engine.config.default_profile))
+
+    assert len(provider.requests) == 1
+    assert provider.requests[0].tool_choice != "write_file"
+    assert "fully_read=False" in provider.requests[0].messages[0]["content"]
+    assert "next_offset=256" in provider.requests[0].messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_verification_reserve_blocks_with_actionable_reason(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": f"f{i}.txt"}, call_id=f"r{i}"), ModelEvent(kind="completed")]
+        for i in range(4)
+    ])
+    engine, repo = _engine(tmp_path, provider, files={f"f{i}.txt": f"content {i}" for i in range(4)},
+                           economy_fields={"max_requests": 5})
+    result = await engine.run(TaskSpec(text="Inspect repository", repo_path=str(repo),
+                                       profile_name=engine.config.default_profile))
+
+    assert len(provider.requests) == 4
+    assert result.outcome == "blocked"
+    assert result.error_category == "verification_reserve"
+    assert result.budget.requests_remaining == 1
+    assert "verification or finalization" in result.summary.lower()
