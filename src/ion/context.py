@@ -64,6 +64,34 @@ def _trim_body(message: dict[str, Any], *, preview: int = 0) -> bool:
     return changed
 
 
+def _shrink_file_read_body(message: dict[str, Any], *, preview: int) -> bool:
+    """Keep file-read identity while shrinking a body during required-context compaction."""
+    payload = _payload(message)
+    if payload is None:
+        return False
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    if not isinstance(data, dict) or not data.get("path") or not data.get("read_id"):
+        return False
+    body = data.get("text")
+    if not isinstance(body, str):
+        return False
+    marker = " [body omitted; reread by reference]"
+    original = body.split(marker, 1)[0]
+    if len(original) <= preview and marker in body:
+        return False
+    data["text"] = original[:preview] + marker
+    data["truncated"] = True
+    if "fully_read" in data:
+        data["fully_read"] = False
+    if isinstance(data.get("offset"), int):
+        next_offset = data["offset"] + preview
+        data["next_offset"] = next_offset
+        data["read_more"] = f"Call file_read with offset={next_offset} to read the omitted text."
+    prefix = "Tool result: " if str(message.get("content", "")).startswith("Tool result: ") else ""
+    message["content"] = prefix + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return True
+
+
 def _structured_action(message: dict[str, Any]) -> dict[str, Any] | None:
     if message.get("role") != "assistant":
         return None
@@ -335,6 +363,26 @@ class ContextManager:
                             index, message = recent.pop(i)
                             reasons[_turn_id(message, index)] = reason
                         dropped += 1
+                        continue
+                    # A latest file read is required evidence, but its full
+                    # body is optional once older turns are gone. Preserve its
+                    # identity and hash so the model can reread it by offset.
+                    for target_preview in (512, 0):
+                        shrunk = False
+                        for i in latest_complete:
+                            message = recent[i][1]
+                            data = _payload(message)
+                            nested = data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else data
+                            read_id = nested.get("read_id") if isinstance(nested, dict) else None
+                            if read_id and str(read_id) in referenced_reads:
+                                continue
+                            if _shrink_file_read_body(message, preview=target_preview):
+                                reasons[_turn_id(message, recent[i][0])] = "latest_read_body_preview"
+                                shrunk = True
+                                break
+                        if shrunk:
+                            break
+                    if shrunk:
                         continue
                     if include_pointers:
                         include_pointers = False

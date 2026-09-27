@@ -52,15 +52,33 @@ def test_optional_memory_and_duplicate_reads_drop_before_required_context():
 def test_required_latest_turn_raises_context_overflow():
     task = _task()
     names = ("file_read", "finish_request")
+    history = [{"role": "user", "content": task.text}, *_read("latest", "X" * 9000)]
+    payload = json.loads(history[-1]["content"])
+    payload.pop("path")
+    payload.pop("read_id")
+    history[-1]["content"] = json.dumps(payload)
     with pytest.raises(ContextOverflowError) as exc:
         ContextManager().build(task, _profile(), Phase.act,
-                               [{"role": "user", "content": task.text}, *_read("latest", "X" * 9000)], "",
+                               history, "",
                                tools=tool_schemas(names), tool_names=names, input_budget_tokens=1100)
 
     assert exc.value.code == "latest_turn_overflow"
     assert exc.value.dispatched is False
     assert "latest" in exc.value.manifest.included_turn_ids
     assert exc.value.manifest.estimated_input_tokens > 1100
+
+
+def test_latest_file_read_body_is_compacted_before_blocking():
+    task = _task()
+    history = [{"role": "user", "content": task.text}, *_read("latest", "B" * 4000)]
+    packet = ContextManager().build(task, _profile(), Phase.act, history, "",
+                                    tool_names=("file_read", "finish_request"), input_budget_tokens=1600)
+
+    encoded = json.dumps(packet.messages)
+    assert packet.manifest.omission_reasons["latest"] == "latest_read_body_preview"
+    assert "B" * 4000 not in encoded
+    assert "read_id" in encoded
+    assert "reread by reference" in encoded
 
 
 def test_bundle_schema_cost_is_included_in_estimate():
