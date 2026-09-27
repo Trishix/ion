@@ -51,6 +51,7 @@ class ModelProfile(StrictModel):
     locked: bool = False
     context_window: int = Field(gt=1024)
     max_output_tokens: int = Field(gt=0)
+    input_budget_tokens: int = Field(default=6000, ge=1024)
 
     @field_validator("api_key_env")
     @classmethod
@@ -138,6 +139,44 @@ class VerificationRecord(StrictModel):
     limitations: tuple[str, ...] = ()
 
 
+class MemoryRecord(StrictModel):
+    memory_id: str = Field(default_factory=lambda: str(uuid4()))
+    scope: str
+    fact_key: str
+    text: str
+    evidence_kind: Literal["observed", "user_asserted", "hypothesis", "derived"]
+    status: Literal["active", "stale", "superseded", "expired", "forgotten"] = "active"
+    source_refs: tuple[str, ...] = ()
+    supporting_hashes: tuple[str, ...] = ()
+    observed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    supersedes_id: str | None = None
+    extraction_version: str = "deterministic-1"
+
+    @model_validator(mode="after")
+    def check_memory(self) -> MemoryRecord:
+        if not self.scope.strip() or not self.fact_key.strip() or not self.text.strip():
+            raise ValueError("memory scope, fact_key, and text cannot be blank")
+        if self.evidence_kind != "user_asserted" and not self.source_refs:
+            raise ValueError("non-user memory requires source references")
+        return self
+
+
+class ContextCheckpoint(StrictModel):
+    checkpoint_id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str
+    through_seq: int = Field(ge=0)
+    structured_state_version: int = Field(default=1, ge=1)
+    amendment_version: int = Field(default=0, ge=0)
+    constraints_digest: str
+    summary: str
+    recent_event_refs: tuple[str, ...] = ()
+    pinned_evidence_refs: tuple[str, ...] = ()
+    model_profile_digest: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class TaskResult(StrictModel):
     schema_version: Literal[1] = 1
     task_id: str
@@ -148,6 +187,10 @@ class TaskResult(StrictModel):
     verification_ids: tuple[str, ...] = ()
     limitations: tuple[str, ...] = ()
     final_workspace_fingerprint: str | None = None
+    requests_used: int = 0
+    reported_input_tokens: int = 0
+    reported_output_tokens: int = 0
+    accounted_tokens: int = 0
 
 
 class ModelRequest(StrictModel):
@@ -155,6 +198,7 @@ class ModelRequest(StrictModel):
     tools: tuple[dict[str, Any], ...] = ()
     max_output_tokens: int
     profile_digest: str
+    tool_choice: str | None = None
 
 
 class ModelEvent(StrictModel):
@@ -165,6 +209,7 @@ class ModelEvent(StrictModel):
     call_id: str | None = None
     usage: dict[str, int] | None = None
     error: str | None = None
+    finish_reason: str | None = None
     retry_after_seconds: float | None = Field(default=None, ge=0)
 
 

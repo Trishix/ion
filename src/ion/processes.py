@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import shlex
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +27,7 @@ class CommandSupervisor:
     async def run(self, command: str, timeout_seconds: float = 120) -> dict:
         if not command.strip():
             raise ValueError("command cannot be blank")
+        self._validate_command(command)
         timeout_seconds = min(max(timeout_seconds, 0.1), 120)
         handle = str(uuid4())
         process = await asyncio.create_subprocess_shell(
@@ -73,6 +76,20 @@ class CommandSupervisor:
             "discarded_bytes": discarded,
             "lossy": discarded > 0,
         }
+
+    @staticmethod
+    def _validate_command(command: str) -> None:
+        if "\x00" in command:
+            raise ValueError("command execution policy rejected null bytes")
+        try:
+            parts = shlex.split(command)
+        except ValueError as exc:
+            raise ValueError("command execution policy rejected malformed shell syntax") from exc
+        if any(part in {"&&", "||", ";", "|", ">", ">>", "<", "&"} for part in parts):
+            raise ValueError("command execution policy rejects shell chains and redirection")
+        lowered = command.lower()
+        if re.search(r"\b(?:sudo|rm\s+-rf|git\s+(?:reset\s+--hard|clean\b|checkout\b|restore\b|push\b)|mkfs|shutdown|reboot)\b", lowered):
+            raise ValueError("command execution policy rejected destructive command")
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
