@@ -12,7 +12,7 @@ verify_output_tokens = 512
 finalize_output_tokens = 512
 verification_reserve_tokens = 256
 finalization_reserve_tokens = 256
-tool_preview_max_chars = 4000
+max_tool_preview_chars = 4000
 compaction_recoveries = 1
 
 [profiles.openrouter-coding-free]
