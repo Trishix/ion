@@ -148,6 +148,8 @@ class Engine:
         repair_attempts = 0
         unavailable_turns = 0
         recovered_tools: set[str] = set()
+        read_cycle_recoveries = 0
+        force_edit_after_read_cycle = False
         registered_tools = {item["function"]["name"] for item in (*tool_schemas(), *tool_schemas(("edit_file", "write_file")))}
         edit_phase_started = False
         expanded_output = bool(economy and edit_intent and re.search(r"\b(?:rewrite|replace|regenerate)\b", task.text, re.IGNORECASE))
@@ -336,7 +338,10 @@ class Engine:
                     await self._emit(Phase.act, f"Context trimmed: {reported_dropped_turns} older tool turns omitted")
                 self.dispatcher.scope_write_reads(packet.messages)
                 forced_write = forced_write and bool(self.dispatcher.visible_write_reads)
-                directed_tool = 'write_file' if forced_write else 'edit_file' if economy and edit_intent and action_reminders and self.dispatcher.reads and not workspace.writes else None
+                directed_tool = ('write_file' if forced_write else 'edit_file'
+                                 if ((economy and edit_intent and action_reminders and self.dispatcher.reads and not workspace.writes)
+                                     or (force_edit_after_read_cycle and edit_intent and self.dispatcher.reads and not workspace.writes))
+                                 else None)
                 if not directed_tools_supported or directed_tool not in offered_names:
                     directed_tool = None
                 request = ModelRequest(messages=packet.messages, tools=schemas if profile.tool_protocol == "native" else (), max_output_tokens=packet.max_output_tokens, profile_digest=profile_digest(profile), tool_choice=directed_tool if profile.tool_protocol == "native" else None)
@@ -455,6 +460,20 @@ class Engine:
                     # availability recovery handle them, not the execution loop guard.
                     loop_state = loop_guard.observe(signature, workspace.fingerprint()) if all(call.tool in offered_names for call in calls) else None
                     if loop_state == "stop":
+                        if (edit_intent and not workspace.writes and read_cycle_recoveries < 1
+                                and calls and all(call.tool == "file_read" for call in calls)
+                                and self.dispatcher.reads):
+                            read_cycle_recoveries += 1
+                            force_edit_after_read_cycle = True
+                            action_reminders = max(action_reminders, 1)
+                            loop_guard = LoopGuard()
+                            progress_hint = (
+                                "The requested files have already been inspected. Stop rereading unchanged pages. "
+                                "Apply the requested change with edit_file using an observed read_id, or report the concrete blocker with finish_request."
+                            )
+                            history.append({"role": "user", "content": progress_hint})
+                            await self._emit(Phase.act, "Repeated reads recovered once; directing the model to edit observed evidence")
+                            continue
                         summary = "Stopped repeated tool cycle without workspace progress"
                         outcome = Outcome.blocked
                         error_category = "repeated_tool_cycle"
@@ -645,6 +664,7 @@ class Engine:
                         elif call.tool in {"repo_list", "repo_search"} and result.status == OperationStatus.succeeded:
                             creation_navigation_ready = True
                         elif call.tool in {"patch_apply", "edit_file", "write_file"} and result.status == OperationStatus.succeeded:
+                            force_edit_after_read_cycle = False
                             edit_complete = bool(result.data.get("done"))
                             progress_hint = "Patch applied. Inspect the diff and run a relevant check. Do not reapply the same patch. Finish with an honest result."
                             if economy:
