@@ -420,18 +420,24 @@ class Engine:
                         progress_hint = "Previous response was malformed. Return one complete, valid tool action; keep the edit small."
                         await self._emit(phase, "Malformed response; allowing one repair attempt")
                         continue
-                    if error == "provider rate limit" and rate_limit_retries < (1 if economy else 2):
+                    if error == "provider rate limit":
                         retry_seconds = retry_after_seconds if retry_after_seconds is not None else float(rate_limit_retries + 1)
-                        if retry_seconds > 30:
-                            summary = f"Provider rate limit; retry after about {int(retry_seconds)} seconds"
-                            outcome = Outcome.failed
-                            error_category = "provider_rate_limit"
-                            break
-                        rate_limit_retries += 1
-                        delay = max(1, int(retry_seconds + 0.999))
-                        await self._emit(Phase.act, f"Provider rate limit; retrying in {delay}s")
-                        await asyncio.sleep(delay)
-                        continue
+                        if rate_limit_retries < (1 if economy else 2) and retry_seconds <= 30:
+                            rate_limit_retries += 1
+                            delay = max(1, int(retry_seconds + 0.999))
+                            await self._emit(Phase.act, f"Provider rate limit; retrying in {delay}s")
+                            await asyncio.sleep(delay)
+                            continue
+                        wait_hint = f" Retry after about {int(retry_seconds)} seconds." if retry_seconds > 0 else ""
+                        summary = (
+                            "Task incomplete: provider rate limit reached."
+                            f"{wait_hint} Partial changes were preserved; resume to continue."
+                        )
+                        # A provider limit is a resumable interruption, not a
+                        # claim that the task failed or that the edits vanished.
+                        outcome = Outcome.unverified
+                        error_category = "provider_rate_limit"
+                        break
                     if error == "provider quota exhausted":
                         summary = "Provider quota exhausted. Choose another available model or wait for the provider quota to reset."
                         outcome = Outcome.failed
@@ -823,7 +829,7 @@ class Engine:
             ))
         patch = workspace.patch_text()
         patch_artifact = self.dispatcher.artifacts.put(patch.encode(), "ion_patch") if patch else None
-        if outcome == Outcome.unverified:
+        if outcome == Outcome.unverified and error_category != "provider_rate_limit":
             outcome = CompletionGate().decide(changes, records, fingerprint)
         limitations = (("Repository checks disabled; edits have not been tested.",) if checks_disabled else
                        (("No relevant executable verification was recorded.",) if outcome != Outcome.verified else ()))

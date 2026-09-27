@@ -82,7 +82,7 @@ The agent chooses tools as needed. `trace_symbol` finds case-sensitive occurrenc
 lint_command = ["make", "check-style"]
 ```
 
-Edits require observed source and current hashes. Whole-file rewrites require complete reads. Relevant passing checks can produce a `verified` result; an applied diff or clean lint alone does not establish behavioral correctness. Other outcomes include `unverified`, `blocked`, `budget_exhausted`, `failed`, and `cancelled`.
+Edits require observed source and current hashes. Whole-file rewrites require complete reads. Relevant passing checks can produce a `verified` result; an applied diff or clean lint alone does not establish behavioral correctness. Other outcomes include `unverified`, `blocked`, `budget_exhausted`, `failed`, and `cancelled`. If a provider rate limit interrupts a run, Ion returns an unverified incomplete result, preserves the current edits and patch artifact, and gives resume guidance instead of discarding the work.
 
 ## Configuration
 
@@ -94,7 +94,7 @@ Ion loads [ion.toml](ion.toml) from its checkout by default. Set `ION_CONFIG` to
 
 Profiles specify the HTTPS endpoint, model, context and output limits, and either native tools or structured JSON actions. Evaluation ignores `AI_PROVIDER`, `AI_MODEL`, and `AI_BASE_URL` overrides and preserves the configured endpoint, model, and limits. Ion does not infer a provider from a key or try keys against other providers. The Qwen profile currently targets DashScope Beijing, so its key must belong to that region. Both submitted endpoints and model IDs are defined in `ion.toml`; they must match the committee's prescribed services.
 
-Economy mode is currently disabled in `ion.toml`. Enabling `[economy].enabled` applies these product-mode limits: 12 model requests and 24,000 accounted tokens per task. The committed preferred output allowances are 512 tokens for inspection, 1,024 for edits, 4,096 for rewrites, and 512 each for verification and finalization. Budget planning protects 256 tokens each for verification and finalization and respects the selected model's limits. Profiles default to an estimated 6,000 input tokens per request, including tool schemas. These are admission estimates, not provider billing guarantees. Adjust `[economy]` and profile limits in the configuration; locked evaluation uses the legacy request workflow.
+Product launches use the output-focused normal workflow. Economy mode is disabled by default and in the committed `ion.toml`; its bounded settings remain only for compatibility and targeted tests. When explicitly enabled, it applies 12 model requests and 24,000 accounted tokens per task, with preferred output allowances of 512 tokens for inspection, 1,024 for edits, 4,096 for rewrites, and 512 each for verification and finalization. Budget planning protects 256 tokens each for verification and finalization and respects the selected model's limits. Profiles default to an estimated 6,000 input tokens per request, including tool schemas. These are admission estimates, not provider billing guarantees.
 
 ## Data and execution boundaries
 

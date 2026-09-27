@@ -43,7 +43,7 @@ The optional `make install` target registers the checkout as an editable uv tool
 
 1. The launcher captures the current directory and resolves configuration and credentials. The TUI constructs a validated `TaskSpec` for a submission.
 2. The TUI acquires a workspace lease, captures the baseline, creates per-task artifacts and a command supervisor, and opens repository memory. It journals the task before running the engine.
-3. The engine classifies intent, reads root repository instructions, and retrieves bounded memory. For a task naming one file, economy mode may prefetch source without a model request.
+3. The engine classifies intent, reads root repository instructions, and retrieves bounded memory. Product runs use the output-focused normal workflow; the optional bounded economy path may prefetch a specifically named file without a model request when explicitly enabled.
 4. For each turn, the engine chooses tools and an output allowance, builds bounded context, reserves budget, and requests model output. Steering takes effect at turn boundaries.
 5. The controller validates actions and dispatches permitted tools. It records operation intent before dispatch and completion afterward. Reads establish edit evidence; writes update attribution; commands retain output and may supply verification records.
 6. Finalization captures changes, a patch artifact, the workspace fingerprint, usage, and limitations. The completion gate determines verification status. The TUI persists the result and releases resources and ownership when safe.
@@ -88,7 +88,7 @@ This reduces schema overhead while allowing navigation after edits. `trace_symbo
 
 `BudgetLedger` reserves estimated input plus output cap before a request and settles against complete reported usage when available. Failed requests and retries consume budget. `BudgetPolicy` selects inspection, edit, rewrite, verification, or finalization allowances and protects capacity for the last two stages.
 
-Economy mode is currently disabled in the committed configuration. When enabled, its configured limits allow 12 requests and 24,000 accounted tokens, with preferred output caps of 512/1,024/4,096/512/512 by work class and 256-token verification and finalization reserves. Model limits and remaining budget can reduce caps. Legacy runs use a 24-request ceiling. The ledger also enforces a ten-minute admission deadline.
+Product runs use the output-focused normal workflow by default, and the committed configuration disables economy mode. The optional compatibility path, when explicitly enabled, allows 12 requests and 24,000 accounted tokens, with preferred output caps of 512/1,024/4,096/512/512 by work class and 256-token verification and finalization reserves. Model limits and remaining budget can reduce caps. Normal runs use the ledger's 24-request ceiling. The ledger also enforces a ten-minute admission deadline.
 
 Context estimates include serialized messages and schemas rather than a model-specific tokenizer. These controls limit admission; they cannot guarantee exact billing. A truncated output can receive one economy retry with a larger allowance, but partial tool calls are not executed.
 
@@ -118,7 +118,7 @@ This supports existing project test commands without provisioning containers. Th
 
 Verification observers recognize relevant successful checks from supported test runners and attach the command operation and workspace fingerprint. The completion gate rejects ambiguous attribution and requires a passing record matching the final fingerprint for verified edits. Explicit read-only completion can use controller-generated static evidence when the workspace is unchanged. Unspecified tasks do not receive static completion credit for merely reading files, and an explicit blocker remains blocked. Edit requests using solve, resolve, or repair receive the same guarded edit tools as fix requests.
 
-The result distinguishes verified, unverified, blocked, budget exhausted, failed, and cancelled outcomes. A patch, a model's summary, and a linter's success are insufficient by themselves. Relevance detection uses command and output heuristics, so a valid check can remain unrecognized and produce an unverified result.
+The result distinguishes verified, unverified, blocked, budget exhausted, failed, and cancelled outcomes. A patch, a model's summary, and a linter's success are insufficient by themselves. Relevance detection uses command and output heuristics, so a valid check can remain unrecognized and produce an unverified result. A terminal provider rate limit returns an unverified incomplete result with preserved edits and resume guidance; it never erases the partial workspace or claims completion.
 
 ### 10. Persist intent and evidence without replaying mutations
 

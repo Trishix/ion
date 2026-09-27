@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from ion.config import load_config, resolve_credential, resolve_profile
+from ion.config import EconomyConfig, load_config, resolve_credential, resolve_profile
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +60,10 @@ def test_profiles_use_provider_keys_and_evaluation_uses_ai_api_key(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "evaluation-test-value")
     assert resolve_credential(profile, "product") == ("groq-only-test-value", "GROQ_API_KEY")
     assert resolve_credential(profile, "evaluation") == ("evaluation-test-value", "AI_API_KEY")
+
+
+def test_product_workflow_is_output_focused_by_default():
+    assert EconomyConfig().enabled is False
 
 
 def test_config_rejects_embedded_credential(tmp_path):

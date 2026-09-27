@@ -13,7 +13,9 @@ from ion.contracts import ModelProfile, TaskSpec
 
 class EconomyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    enabled: bool = True
+    # Product runs use the output-focused workflow by default.  The bounded
+    # economy workflow remains available for explicit compatibility and tests.
+    enabled: bool = False
     max_requests: int = Field(default=12, ge=2, le=100)
     max_total_tokens: int = Field(default=24000, ge=2048)
     inspect_output_tokens: int = Field(default=512, ge=256)

@@ -757,7 +757,7 @@ class IonApp(App, inherit_bindings=False):
             if "quota exhausted" in result_summary:
                 self._log("The selected free-model quota is exhausted. Choose a paid model with /models or wait for reset.")
             elif "rate limit" in result_summary:
-                self._log("Provider capacity reached. Wait before retrying, or explicitly choose another model with /models. No model was switched automatically.")
+                self._log("Task incomplete because provider capacity was reached. Partial changes remain; resume when capacity returns.")
             elif "authentication failed" in result_summary or "access denied" in result_summary:
                 self._log('The provider rejected this credential. Use /model to select the provider matching AI_API_KEY.' if self.mode == 'evaluation' else 'The provider rejected this credential. Replace it with /connect.')
             elif "model unavailable" in result_summary:

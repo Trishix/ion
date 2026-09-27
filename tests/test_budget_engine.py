@@ -257,10 +257,33 @@ async def test_provider_rate_limit_keeps_its_error_category(tmp_path):
     provider = ScriptedProvider([[ModelEvent(kind="error", error="provider rate limit", retry_after_seconds=31)]])
     engine, repo = _engine(tmp_path, provider)
     result = await engine.run(TaskSpec(text="Inspect project", repo_path=str(repo), profile_name=engine.config.default_profile))
-    assert result.outcome == "failed"
+    assert result.outcome == "unverified"
     assert result.error_category == "provider_rate_limit"
+    assert "incomplete" in result.summary.lower()
     assert result.request_dispatched is True
     assert len(provider.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_returns_partial_edits_for_resume(tmp_path):
+    provider = ScriptedProvider([
+        [ModelEvent(kind="tool_call", tool="file_read", arguments={"relative_path": "a.txt"}, call_id="read"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="tool_call", tool="patch_apply", arguments={"edits": [{
+            "path": "a.txt", "expected_hash": digest(b"old"), "old_text": "old", "new_text": "new",
+        }]}, call_id="patch"), ModelEvent(kind="completed")],
+        [ModelEvent(kind="error", error="provider rate limit", retry_after_seconds=31)],
+    ])
+    engine, repo = _engine(tmp_path, provider, files={"a.txt": "old"},
+                           economy_fields={"enabled": False}, allow_commands=True)
+    result = await engine.run(TaskSpec(text="Fix a.txt", repo_path=str(repo), profile_name=engine.config.default_profile))
+
+    assert (repo / "a.txt").read_text() == "new"
+    assert result.outcome == "unverified"
+    assert result.error_category == "provider_rate_limit"
+    assert "incomplete" in result.summary.lower()
+    assert result.changed_files == ("a.txt",)
+    assert result.patch_artifact_id
+    assert len(provider.requests) == 3
 
 
 def test_tool_preview_respects_configured_maximum():
