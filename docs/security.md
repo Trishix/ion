@@ -27,7 +27,7 @@ Capabilities distinguish repository reads, guarded edits, command execution, man
 
 Trusted-local product mode preauthorizes ordinary in-scope file edits and configured repository tests/builds. Publishing, pushes, deployment, credential access, writes outside scope, and broad destructive operations require explicit user direction and an appropriate implemented capability; they are not automatic coding steps.
 
-In headless mode, an action needing new authority returns a policy blocker. It never silently approves itself or waits forever. Evaluation profile permissions must be resolved before submission to support the official tasks without hidden prompts.
+In the TUI, an action needing new authority returns a policy blocker with a concrete explanation and available safe choices. The agent never silently approves itself or waits forever. Evaluation profile permissions must be resolved before submission to support the official tasks without hidden prompts.
 
 Workers cannot widen authority, use parent-only tools, read unrelated scopes, or delegate recursively. Permission checks are repeated at execution time, not only when tool schemas are shown.
 

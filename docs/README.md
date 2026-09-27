@@ -2,7 +2,7 @@
 
 Ion is a planned autonomous coding-agent harness for the AI Harness Hackathon 2026 and a continuing local developer product.
 
-**Current status:** documentation only. The engine, CLI/TUI, Makefile, tests, and model integrations described here are not implemented. No benchmark score or submission-readiness claim is made.
+**Current status:** documentation only. The engine, TUI, Makefile, tests, and model integrations described here are not implemented. No benchmark score or submission-readiness claim is made.
 
 ## Read in this order
 
@@ -11,7 +11,7 @@ Ion is a planned autonomous coding-agent harness for the AI Harness Hackathon 20
 | [Hackathon rules](rules.md) | Organizer obligations, team policies, compliance checks, and unresolved official details |
 | [Product requirements](prd.md) | Users, workflows, requirements, scope, and success measures |
 | [System architecture](architecture.md) | Components, process boundaries, storage ownership, and data flow |
-| [Interfaces and data](interfaces-and-data.md) | Canonical commands, methods, schemas, enums, defaults, and configuration |
+| [Interfaces and data](interfaces-and-data.md) | TUI launch/interaction contract, internal methods, schemas, enums, defaults, and configuration |
 | [Memory architecture](memory-architecture.md) | Knowledge sources, scopes, relationships, freshness, retrieval, and forgetting |
 | [Context management](context-management.md) | Model-visible context, instruction precedence, token budgets, and compaction |
 | [Execution and tools](execution-and-tools.md) | Tool contracts, guarded edits, process supervision, delegation, and backends |
@@ -41,7 +41,7 @@ Change a contract in its owner document first, update affected consumers/evaluat
 
 | Term | Meaning |
 | --- | --- |
-| Session | Durable interaction/execution record with ordered events and reconnectable clients |
+| Session | Durable interaction/execution record with ordered events and a reconnectable TUI |
 | Task | One user/organizer objective with criteria, scope, and budget |
 | Workspace | A specific working directory; separate worktrees are separate workspaces |
 | Repository identity | Knowledge namespace associated with the underlying repository, with revision/hash applicability |

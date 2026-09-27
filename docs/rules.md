@@ -14,7 +14,7 @@ MUST below denotes an explicit organizer obligation. SHOULD denotes guidance qua
 | --- | --- | --- | --- | --- |
 | HK-01 | MUST place a Makefile at the submitted repository root and expose setup, run, and test targets. | §§1, 5, 12–14 | Packaging | Fresh checkout contains the root file and all three targets. |
 | HK-02 | MUST make setup install/configure the declared execution dependencies; setup must succeed. | §§1, 5, 9, 13–14 | Packaging | EVAL-01 in a clean environment; no undocumented manual installation. |
-| HK-03 | MUST make run initialize and launch the harness in its intended evaluation mode; launch must succeed. | §§1, 5, 12–14 | CLI/session service | EVAL-01, EVAL-02. |
+| HK-03 | MUST make run initialize and launch the harness in its intended evaluation mode; launch must succeed. | §§1, 5, 12–14 | TUI/session service | EVAL-01, EVAL-02. |
 | HK-04 | MUST read the supplied runtime credential from AI_API_KEY without editing source. | §§2, 4–5, 8, 12 | Model gateway | EVAL-03 with injected credential; missing-key error contains no credential. |
 | HK-05 | MUST NOT hard-code or commit credentials in source, Makefiles, configuration, documentation, or .env files. A blank .env.example is permitted. | §§2, 8 | All components | EVAL-03 plus tracked-file/history secret scan before submission. |
 | HK-06 | MUST use text-only language models for evaluation and accept text evaluation input without image, audio, video, or other multimodal requirements. | §3; problem statement | Gateway/input adapters | EVAL-04 inspects every model request and task input path. |
@@ -34,7 +34,7 @@ The problem statement asks for autonomous repository navigation, tool use, conte
 
 | ID | Policy | Reason |
 | --- | --- | --- |
-| POL-01 | Use Python, a local durable engine, and a TUI/headless client pair. | Agreed product direction. Headless support is Ion's addition. |
+| POL-01 | Use Python, a local durable engine, and a TUI-only user interface. | Agreed product direction; other user-facing interfaces are out of scope. |
 | POL-02 | In evaluation, all generative calls use the locked prescribed model; no external embedding or memory service is required. | Avoid hidden credentials and model substitutions. |
 | POL-03 | Isolate reusable cross-task memory in evaluation; start each independent case with fresh memory. | Conservative fairness default pending official policy, not an asserted prohibition. |
 | POL-04 | Require recorded verification for a verified result; preserve partial results otherwise. | Prevent unsupported success claims. |
@@ -51,7 +51,7 @@ Policy details and numerical development defaults are owned by [interfaces-and-d
 | --- | --- | --- | --- |
 | OPEN-01 | Model, provider protocol, endpoint, limits, and tool-calling capability | Provider adapter boundary; no invented model ID | Obtain official specification, commit nonsecret evaluation profile, validate all model paths. |
 | OPEN-02 | OS, architecture, installed runtime/tools, and setup network access | Linux x86-64 evaluation candidate; macOS local development; setup network available | Reproduce the actual environment; pin working runtime/dependency versions. |
-| OPEN-03 | Task transport and target-repository location | TUI text entry or stdin with explicit repository selection | Add the official input adapter and ensure make run works without source edits. |
+| OPEN-03 | How the evaluator supplies task text and target-repository location to the TUI | TUI text entry/paste and explicit repository selection | Add the official input adapter within the TUI and ensure make run works without source edits. |
 | OPEN-04 | Time, tokens, API quota, cost, and scoring policy | Development defaults only | Configure official limits and budget accounting; do not claim an unofficial score. |
 | OPEN-05 | Dependency-installation and execution network policy | Trusted local execution; optional container backend | Validate needed provisioning and tool permissions against official infrastructure. |
 | OPEN-06 | Reusable memory, external tools, and additional-model policy | Fresh cross-task memory; no additional inference service | Confirm allowed behavior and record the approved configuration. |
@@ -61,7 +61,7 @@ OPEN-01 through OPEN-07 block claims of submission readiness, not architecture w
 
 ## Evaluator contract
 
-The documented official sequence is: obtain repository, enter its root, export AI_API_KEY externally, run make setup, run make run, supply the official issue/test case, and optionally run make test. There must be no interactive login, key copied into a file, or second service credential in this path.
+The documented official sequence is: obtain repository, enter its root, export AI_API_KEY externally, run make setup, run make run, supply the official issue/test case in the launched TUI, and optionally run make test. There must be no interactive login, key copied into a file, or second service credential in this path. The TUI is the only user-facing task interface; organizer-mandated Makefile targets remain the packaging/evaluation entrypoint, not a second product interface.
 
 The eventual README must show that sequence without including a real credential. An example environment file may contain only the empty assignment AI_API_KEY=.
 

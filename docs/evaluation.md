@@ -17,11 +17,11 @@ Do not write tests that merely restate a mocked response. For example, recovery 
 | ID | Requirement coverage | Scenarios and required observation |
 | --- | --- | --- |
 | EVAL-01 | HK-01–03, HK-09, HK-11, HK-13; PRD-01, PRD-12 | Clean checkout runs setup, offline tests, and launch; rerun setup is idempotent; no source edits/manual fixes; key unnecessary for setup/test. |
-| EVAL-02 | HK-03, HK-08; PRD-09, PRD-13 | TTY launch, piped text, task file, empty stdin, target selection, JSONL-only stdout, exit codes, UI detach/reattach, session inspection without model calls. |
+| EVAL-02 | HK-03, HK-08; PRD-09, PRD-13 | TUI launch via make run, interactive task text entry/paste, target selection, clear non-TTY launch failure, UI detach/reattach, session inspection without model calls. |
 | EVAL-03 | HK-04–05; PRD-11 | Missing/invalid key, known secret echoed by a fixture, subprocess environment capture, provider error dump, tracked-file/history scan; no secret reaches child env or retained output. |
-| EVAL-04 | HK-06–07; PRD-01 | Primary/worker/compactor/extractor all use locked text model; reject repo/CLI model override; native and structured-action protocols; reject media-dependent inputs and malformed actions. |
+| EVAL-04 | HK-06–07; PRD-01 | Primary/worker/compactor/extractor all use locked text model; reject repository/user config model override; native and structured-action protocols; reject media-dependent inputs and malformed actions. |
 | EVAL-05 | PRD-02–03, PRD-14 | Dirty index/worktree, new files, deletion, symlink escape, traversal, non-Git inspection, external edit after read; unrelated external edits excluded from Ion patch; same-file/command overlap marked ambiguous; preserve user changes and reject stale patches. |
-| EVAL-06 | PRD-03, PRD-08 | Invalid arguments, large Unicode output, huge single line, quota exhaustion, process timeout, stdin prompt, background readiness failure, descendant cancellation, cursor pagination. |
+| EVAL-06 | PRD-03, PRD-08 | Invalid tool arguments, large Unicode output, huge single line, quota exhaustion, process timeout, unexpected interactive subprocess prompt, background readiness failure, descendant cancellation, cursor pagination. |
 | EVAL-07 | PRD-04, PRD-14 | Crash before/after intent; command side effect before settlement; multi-file partial patch; PID reuse; session A crashes during a writing command and session B immediately starts; spawn gate/owner-loss cleanup; missing/corrupt artifact; interrupted checkpoint. Never blindly replay unknown writes or admit a second writer around an orphan. |
 | EVAL-08 | PRD-05 | Small context limit, repeated compaction, post-intake non-criterion constraints and steering during summary generation, lost-summary constraint attempt, orphaned tool result, provider-native epoch metadata, failed compactor, one overflow repair, pinned content too large. |
 | EVAL-09 | PRD-06, PRD-13 | Cross-repo/branch facts, changed lockfile, contradictory observations, inferred fact labeling, stale derivation, forgotten fact re-ingestion, scope leaks, duplicate injection, retrieval timeout. |
@@ -78,7 +78,7 @@ Do not report cached tokens as zero total usage, omit failed attempts from costs
 3. Obtain a fresh copy of the candidate submission in the actual prescribed environment.
 4. Inject AI_API_KEY externally; run make setup, make run, and make test.
 5. Supply an official-format task and inspect its output location and independently graded result.
-6. Exercise TUI and headless paths, restart/recovery, and cleanup safety.
+6. Exercise the TUI path, restart/recovery through the TUI, and cleanup safety.
 7. Scan committed files and history for credentials; verify no additional secret/service is required.
 8. Save a release report containing revision, manifest/profile hashes, commands, exit codes, environment, evidence, and unresolved limitations.
 

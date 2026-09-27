@@ -4,7 +4,7 @@
 
 **Goal:** implement a competition-ready local coding harness with durable execution, bounded context, source-linked memory, and evidence-based completion.
 
-**Architecture:** a Python session engine owns state and coordinates a provider gateway, typed tools, knowledge/context services, and verification. Thin TUI/headless clients share its event API. One agent writes; optional workers inspect immutable snapshots.
+**Architecture:** a Python session engine owns state and coordinates a provider gateway, typed tools, knowledge/context services, and verification. A TUI is the sole user-facing client. One agent writes; optional workers inspect immutable snapshots.
 
 **Tech stack:** Python 3.12 development target, asyncio, SQLite/FTS5, Textual, uv, and pytest. Pin exact compatible releases during Task 1; validate against the official runtime before submission.
 
@@ -18,7 +18,7 @@ This is the future runtime build plan. The current completed deliverable is docu
 - Read credentials only from AI_API_KEY; use the prescribed text-only model for every generative call.
 - Preserve user changes; no automatic Git initialization, commit, stash, reset, push, or publish as a task side effect.
 - Keep one workspace writer, one session state writer, and bounded read-only workers.
-- Use the exact records, enums, CLI contracts, and defaults in interfaces-and-data.md.
+- Use the exact records, enums, TUI contracts, and defaults in interfaces-and-data.md.
 - No required hosted memory service, embedding model, account, or container daemon in the baseline.
 - Record verification against the final workspace; task completion never follows a model stop signal alone.
 
@@ -42,9 +42,9 @@ Runtime decisions that conflict with these documents must be recorded in researc
 
 Depends on: documentation. Produces: installable ion entrypoint, versioned records, validated configuration, root Makefile.
 
-Files: Makefile, README.md, pyproject.toml, uv.lock, .python-version, .env.example, src/ion/contracts.py, src/ion/config.py, src/ion/cli.py, tests/test_contracts.py, tests/test_packaging.py.
+Files: Makefile, README.md, pyproject.toml, uv.lock, .python-version, .env.example, src/ion/contracts.py, src/ion/config.py, src/ion/launcher.py, tests/test_contracts.py, tests/test_packaging.py.
 
-Interfaces: load_profile(name) -> ModelProfile; validate_task(input) -> TaskSpec; CLI parsing emits TaskSpec without executing a model. ModelProfile is the configuration record specified in interfaces-and-data.
+Interfaces: load_profile(name) -> ModelProfile; validate_task(input) -> TaskSpec; TUI form submission emits TaskSpec without executing a model. ModelProfile is the configuration record specified in interfaces-and-data.
 
 - [ ] Add tests for enum validation, result/outcome invariants, TaskAmendment projection, tagged VerificationEvidence (including valid command-free static evidence), invalid task text, locked evaluation overrides, and blank environment templates. Run `uv run python -m pytest tests/test_contracts.py tests/test_packaging.py`; expected initial failures identify missing behavior.
 - [ ] Implement package/configuration/contracts and Makefile setup/test/clean. Bootstrap pinned uv/Python into project-owned tooling paths with verified downloads; use a committed lockfile and an isolated environment. Do not upgrade global pip.
@@ -53,7 +53,7 @@ Interfaces: load_profile(name) -> ModelProfile; validate_task(input) -> TaskSpec
 
 Gate: EVAL-01's packaging portion, EVAL-03 secret-template checks, and EVAL-12 pass. Full launch readiness is deferred to Task 2, explicitly recorded.
 
-## Task 2 — Model gateway and minimal headless coding loop
+## Task 2 — Model gateway and minimal TUI coding loop
 
 Depends on: Task 1. Produces: one end-to-end local issue-solving path.
 
@@ -63,10 +63,10 @@ Interfaces: ModelGateway.generate(request) -> AsyncIterator[ModelEvent]; ToolDis
 
 - [ ] Test native tool normalization, strict structured_json actions, malformed arguments, missing/invalid key, no secret inheritance, and the absence of image/audio inputs. Run `uv run python -m pytest tests/test_gateway.py tests/test_agent_loop.py`; observe intended failures.
 - [ ] Implement gateway and the initial repo_list/repo_search/file_read/patch_apply/command/diff/task/finish tools with exact preconditions and bounded outputs.
-- [ ] Implement the headless loop against a scripted provider and a temporary bug fixture. A verified result requires an actual relevant passing command and matching final fingerprint even in this baseline.
+- [ ] Implement the minimal TUI loop against a scripted provider and a temporary bug fixture. A verified result requires an actual relevant passing command and matching final fingerprint even in this baseline.
 - [ ] Run the tests and full offline suite. A simulated end-to-end fixture must create the expected patch and evidence; a live smoke test is opt-in with explicit credentials/profile.
 
-Gate: EVAL-02 headless path, EVAL-04, basic EVAL-05/06/10. make run launches the intended text interface. No placeholder official model is committed as if prescribed.
+Gate: EVAL-02 TUI path, EVAL-04, basic EVAL-05/06/10. make run launches the TUI. No placeholder official model is committed as if prescribed.
 
 ## Task 3 — Durable sessions, process supervision, and recovery
 
@@ -128,17 +128,17 @@ Interfaces: ContextManager.build(state, profile, phase) -> ContextPacket; Compac
 
 Gate: EVAL-08/09/13. Smaller prompts without preserved behavior do not pass.
 
-## Task 7 — Terminal product and diagnostics
+## Task 7 — TUI product and diagnostics
 
 Depends on: Tasks 3–6. Produces: TUI, session browser, evidence/knowledge inspection, doctor.
 
-Files: src/ion/tui/app.py, src/ion/tui/views.py, src/ion/client.py, tests/test_tui.py, tests/test_cli.py.
+Files: src/ion/tui/app.py, src/ion/tui/views.py, src/ion/client.py, tests/test_tui.py.
 
-Interfaces: Client wraps the existing session socket contract; TUI consumes snapshots/events and sends control requests. It has no separate agent loop.
+Interfaces: Internal client wraps the private session socket contract; the TUI consumes snapshots/events and sends control requests. It has no separate agent loop and is not exposed as a user-facing CLI/API.
 
-- [ ] Test TTY/non-TTY launch, JSONL stdout, cancelled requests, disconnect/reconnect, event deduplication, narrow terminals, and inspection without provider calls. Run named modules; confirm failures.
+- [ ] Test interactive-terminal launch and actionable non-TTY failure, cancelled requests, disconnect/reconnect, event deduplication, narrow terminals, and inspection without provider calls. Run named modules; confirm failures.
 - [ ] Implement task input, repository selection, progress/tools/diff/verification/budget views, pause/cancel/resume, and credential-safe diagnostics.
-- [ ] Run automated UI/CLI tests and a manual terminal smoke check; record the supported environment.
+- [ ] Run automated TUI tests and a manual terminal smoke check; record the supported environment.
 - [ ] Run the full offline suite.
 
 Gate: EVAL-02 and PRD-09/13. No hidden setup command beyond make run.
@@ -175,4 +175,4 @@ Gate: all P0 acceptance scenarios pass; official environment launch works; no un
 
 ## Deferred work
 
-Container isolation, Windows, editor/HTTP clients, semantic retrieval, LSP, external tools, and hosted collaboration each need a separate decision/spec and measured acceptance criteria. They must not quietly become competition prerequisites.
+Container isolation, Windows, public APIs, editor/HTTP/web clients, headless task interfaces, semantic retrieval, LSP, external tools, and hosted collaboration are out of current product scope. Any future reconsideration requires an explicit product decision and measured acceptance criteria; none may quietly become competition prerequisites.

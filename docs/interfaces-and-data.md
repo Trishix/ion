@@ -2,29 +2,17 @@
 
 Status: normative v1 design, not an implemented API. This document is the single owner of shared names, states, defaults, and schema rules.
 
-## CLI contract
+## TUI and launch contract
 
-| Command | Contract |
-| --- | --- |
-| `ion [--repo PATH]` | Launch the TUI; default target is the invocation directory. Show/confirm the target before the first mutation. |
-| `ion run --repo PATH --task-file FILE --json` | Read UTF-8 task text from FILE; use `-` for stdin through EOF. Emit newline-delimited JSON events and a final result. |
-| `ion resume SESSION_ID [--json]` | Reconcile interrupted operations and resume the same logical task; reject incompatible profile/schema changes. |
-| `ion inspect SESSION_ID [--json]` | Read task state, events, patch, usage, and verification without executing tools. |
-| `ion doctor [--profile NAME]` | Check local runtime/configuration; network authentication probe only with `--check-model`. |
-| `ion memory list --repo PATH` | List eligible knowledge with provenance and status. |
-| `ion memory forget MEMORY_ID --repo PATH` | Tombstone a knowledge record and invalidate dependent retrieval/profile caches. |
+`make run` launches the TUI. All user-facing task input, repository selection, session resume, inspection, memory management, and task controls are performed in that TUI. The evaluator supplies the task through the TUI according to the official protocol. The invocation directory is the default target repository; show and confirm the target before the first mutation.
 
-Future artifact purge/export commands require their own explicit design; forgetting is not source-data deletion.
+The TUI provides doctor/configuration checks and a visible, auditable route to list or forget remembered knowledge. Forgetting tombstones the knowledge record and invalidates dependent retrieval/profile caches; it is not source-data deletion. Future artifact purge/export controls require their own explicit design.
 
-`make run` chooses TUI when stdin and stdout are terminals, otherwise uses stdin text mode and JSONL output. `ION_REPO` supplies an optional target path to the Makefile launcher; without it the TUI asks for a path and headless mode uses the invocation directory. Until OPEN-03 is resolved this is the development input adapter, not a claim about the official evaluator transport.
-
-Human-readable headless diagnostics go to stderr. stdout contains only versioned JSONL. Setup/run launcher banners must not contaminate it. Empty text, an unreadable repository, or conflicting input flags fail before model calls.
-
-Headless exit codes: 0 verified; 2 invalid input/configuration; 3 blocked; 4 budget_exhausted; 5 failed; 6 unverified; 130 cancelled. These are Ion's conventions, not organizer requirements.
+`make run` always launches the TUI and fails clearly with an actionable terminal requirement if stdin/stdout are not interactive; it must never switch to another task protocol. `ION_REPO` supplies an optional target path to the Makefile launcher; without it the TUI asks for a path. Until OPEN-03 is resolved, the TUI's text-entry/paste and repository-selection flow is the development adapter, not a claim about the official evaluator's exact task-delivery mechanics.
 
 ## Session service
 
-The UI calls a Python client over a permission-restricted Unix domain socket owned by the session engine. One background engine process owns each session; it outlives client disconnects. Write admission requires both a per-workspace advisory lock and a durable WorkspaceOwnership check. A released OS lock alone does not prove that an old command stopped. Separate Git worktrees are distinct workspaces; shared repository knowledge uses short database transactions.
+The TUI calls a Python client over a permission-restricted Unix domain socket owned by the session engine. This socket is private implementation IPC, not a supported public API or alternate interface. One background engine process owns each session; it outlives TUI disconnects. Write admission requires both a per-workspace advisory lock and a durable WorkspaceOwnership check. A released OS lock alone does not prove that an old command stopped. Separate Git worktrees are distinct workspaces; shared repository knowledge uses short database transactions.
 
 Before any new or resumed session receives write authority, acquire the workspace lock and inspect the private ownership registry. An active/recovery-required claim from an exited engine requires reconciling or terminating all its surviving commands and resolving unknown mutations first. Never bypass recovery by creating a new session. Persist the new owner before dispatch; mark ownership clean only after owned processes have stopped and operations have settled.
 
@@ -103,9 +91,9 @@ Schema migrations are versioned, transactional where SQLite permits, and precede
 
 ## Configuration and model boundary
 
-Product precedence: defaults, user configuration, explicit repository configuration, CLI overrides. Credentials come exclusively from environment, never these files. Repository configuration cannot widen security capabilities; trusted user configuration owns permission grants.
+Product precedence: defaults, user configuration, explicit repository configuration, then user-confirmed TUI overrides. Credentials come exclusively from environment, never these files. Repository configuration cannot widen security capabilities; trusted user configuration owns permission grants.
 
-Evaluation loads a committed nonsecret profile, then runtime AI_API_KEY. Model identity, endpoint, protocol, memory policy, tool policy, and budgets are locked for the task. CLI/repository settings cannot override them. Official amendments require a new profile and a new task, not a silent switch mid-session.
+Evaluation loads a committed nonsecret profile, then runtime AI_API_KEY. Model identity, endpoint, protocol, memory policy, tool policy, and budgets are locked for the task. Repository settings cannot override them, and TUI configuration cannot override the locked evaluation profile. Official amendments require a new profile and a new task, not a silent switch mid-session.
 
 ModelProfile fields: provider, endpoint, model_id, protocol, tool_protocol (native/structured_json), context_window, max_output_tokens, generation_settings, optional seed, capability_flags, budget_settings. Context/output limits must be known and validated before a live run. Do not guess them from a model name.
 
