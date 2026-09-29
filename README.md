@@ -4,6 +4,13 @@ Ion is a local terminal coding agent. Give it a text task to inspect a repositor
 
 The implementation uses Python and Textual with text-only, OpenAI-compatible model connections. See [architecture.md](architecture.md) for the runtime design, decisions, and implementation limits.
 
+
+
+
+https://github.com/user-attachments/assets/915bf13b-d68b-4228-877a-b5a339c753fe
+
+
+
 ## Why use Ion?
 
 - Work in your existing repository from the terminal, with task steering and visible tool activity.
